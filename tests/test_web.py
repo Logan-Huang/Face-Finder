@@ -86,5 +86,5 @@ def test_zip_bundles_files_with_unique_names():
 
 def test_page_is_self_contained():
     html = _client().get("/").get_data(as_text=True)
-    assert "PQ Face Finder" in html
+    assert "Face Finder" in html
     assert "http://" not in html and "https://" not in html  # no CDNs, fonts or trackers

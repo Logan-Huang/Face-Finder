@@ -36,7 +36,7 @@ MODELS = {
 
 def default_model_dir() -> Path:
     env = os.environ.get("FACEFINDER_MODELS")
-    return Path(env).expanduser() if env else Path.home() / ".cache" / "pq-face-finder"
+    return Path(env).expanduser() if env else Path.home() / ".cache" / "face-finder"
 
 
 def ensure_models(model_dir: str | Path | None = None, log: Callable[[str], None] = print) -> dict[str, Path]:

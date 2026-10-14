@@ -1,39 +1,53 @@
-# PQ Face Finder
+# Face Finder
 
 Find which of your photos contain a given person. Give it a few photos of the person, point it at a
 pile of photos (or whole folders), and it shows you every photo they appear in. It can also hand
 you the matches as a `.zip` or copy them into a folder.
 
-**Everything runs on your computer.** Photos are never uploaded to the internet, to an AI company or
-anywhere else. The only network access is a one-time download of two small public model files
-(~39 MB) from the [OpenCV model zoo](https://github.com/opencv/opencv_zoo).
+**Everything runs on your own computer.** Photos are never uploaded to the internet, to an AI
+company or anywhere else. The only network access is a one-time download of two small public model
+files (~39 MB) from the [OpenCV model zoo](https://github.com/opencv/opencv_zoo).
 
-## Setup
+Works on macOS, Windows and Linux.
 
-You need [uv](https://docs.astral.sh/uv/) (`brew install uv`). It installs the right Python and
-dependencies automatically on first run.
+## Quick start
+
+1. **Install [uv](https://docs.astral.sh/uv/)** (one time). It sets up the right Python version and
+   everything else automatically.
+   - macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`)
+   - Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+2. **Download Face Finder and start it:**
+   ```sh
+   git clone https://github.com/Logan-Huang/Face-Finder.git
+   cd Face-Finder
+   uv run facefinder web
+   ```
+   The first run installs dependencies and downloads the models, so it takes a minute. After that it
+   starts in seconds. A browser tab opens at `http://127.0.0.1:8765`.
+
+No git? Click **Code → Download ZIP** on GitHub, unzip it, and run `uv run facefinder web` inside
+the folder.
+
+<details>
+<summary>Without uv (plain Python 3.10+)</summary>
 
 ```sh
-cd PQ-Face-Finder
-uv sync
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install .
+facefinder web
 ```
+</details>
 
 ## Use it in the browser (drag and drop)
 
-```sh
-uv run facefinder web
-```
+The page is served by a program running on your computer and is only reachable from your computer.
+"Uploading" a photo there just hands it to that local program.
 
-This opens `http://127.0.0.1:8765` in your browser. The page is served by a program running on your
-Mac and is only reachable from your Mac. "Uploading" a photo there just hands it to that local
-program.
-
-1. **Who are you looking for?** Drop 1–5 clear photos of the person. A few different angles and
-   lighting conditions make it more reliable. If a reference photo has several people, the largest
-   face is used (the page tells you when this happens).
+1. **Who are you looking for?** Drop 1–5 clear photos of the person (see tips below).
 2. **Which photos should I search?** Drop photos or whole folders (JPEG, PNG, HEIC, WebP, TIFF...).
-3. Click **Find this person**. Results come in as each photo is checked. Matching faces get a green
-   box.
+3. Click **Find this person**. Results come in as each photo is checked. Every face in a photo is
+   checked, so group shots work, and the matching face gets a green box.
 4. Use the **Looser ↔ Stricter** slider to adjust the cut-off without rescanning, and
    **Download matches (.zip)** to collect the matching photos.
 
@@ -51,6 +65,21 @@ uv run facefinder find ~/Pictures/Trip --ref me1.jpg --csv scores.csv
 
 Repeat `--ref` for each reference photo. `-t/--threshold` changes the cut-off (see below).
 
+## Tips for good results
+
+There's no training step. The reference photos are just examples to compare against.
+
+- **1 photo works; 3–5 varied photos work best.** Each face is compared with every example and the
+  closest one counts, so different angles and lighting catch more photos. More than about 5 rarely
+  helps.
+- Use clear, well-lit photos where the face is reasonably large, without sunglasses or masks.
+- Use photos that look like the person in the photos you're searching. Use recent ones for kids,
+  and include with and without glasses if they wear them.
+- Prefer solo photos. If a reference has several people, the largest face is used (the page tells
+  you when this happens).
+- Missing some photos? Add one of the missed ones as another example. Getting wrong people? Slide
+  toward **Stricter**.
+
 ## How it works
 
 | Step | What happens | Model |
@@ -62,24 +91,18 @@ Repeat `--ref` for each reference photo. `-t/--threshold` changes the cut-off (s
 
 A photo **matches** when any face in it scores at or above **0.363** against any reference photo.
 OpenCV recommends that cut-off for SFace. In a small test with public photos, different people
-scored 0.09–0.26 and the same person scored 0.66–1.0. Slide the cut-off up if you see false matches and down if the
-tool misses the person.
+scored 0.09–0.26 and the same person scored 0.66–1.0.
 
 Speed: about 55 ms per 12-megapixel photo on an Apple M-series Mac (~1,000 photos/minute from the
 terminal).
 
-**Limits:** like all face recognition, it struggles with faces that are tiny, heavily turned away,
-blurred, covered (sunglasses, masks) or in very dim light. Young children's faces change quickly, so
-use recent reference photos. Treat results as a strong filter rather than proof.
+**Limits:** like all face recognition, it struggles with faces that are tiny (back rows of big group
+photos), heavily turned away, blurred, covered or in very dim light. Treat results as a strong
+filter rather than proof.
 
-## Why not Laya?
-
-`laya-0.1.1.zip` in this folder is [Laya](https://huggingface.co/convaiinnovations/laya), a
-Jev-compatible "System 1" decision model. It is a **text-only** model (a ModernBERT text encoder):
-you give it text or JSON and typed questions, and it returns calibrated choices, scores and yes/no
-probabilities. It has no way to look at pixels, so it can't tell who is in a photo. That job needs a
-vision model like the YuNet + SFace pair above. Laya would only become useful as an extra step if
-you later want text-based sorting, for example routing photos by caption, filename or album notes.
+**Why not a text model like [Laya](https://huggingface.co/convaiinnovations/laya)?** Laya and similar
+decision models only read text and JSON. They can't look at pixels, so they can't tell who is in a
+photo. That job needs vision models like the YuNet + SFace pair above.
 
 ## Development
 
@@ -87,5 +110,9 @@ you later want text-based sorting, for example routing photos by caption, filena
 uv run pytest -q   # tests use generated images and a stand-in engine, so no photos are needed
 ```
 
-Models are cached in `~/.cache/pq-face-finder` (override with `FACEFINDER_MODELS=/some/dir`) and
+Models are cached in `~/.cache/face-finder` (override with `FACEFINDER_MODELS=/some/dir`) and
 checked against SHA-256 hashes before use.
+
+## License
+
+[MIT](LICENSE)

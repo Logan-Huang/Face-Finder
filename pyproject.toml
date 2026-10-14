@@ -1,8 +1,9 @@
 [project]
-name = "pq-face-finder"
+name = "face-finder"
 version = "0.1.0"
 description = "Find which of your photos contain a given person, with face recognition that runs entirely on your computer."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "certifi>=2024.2.2",

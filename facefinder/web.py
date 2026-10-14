@@ -126,7 +126,7 @@ def serve(port: int = 8765, open_browser: bool = True) -> None:
     engine = FaceEngine()
     app = create_app(engine)
     url = f"http://127.0.0.1:{port}/"
-    print(f"PQ Face Finder is running at {url}  (only reachable from this computer; Ctrl+C to stop)")
+    print(f"Face Finder is running at {url}  (only reachable from this computer; Ctrl+C to stop)")
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     app.run(host="127.0.0.1", port=port, threaded=True)
