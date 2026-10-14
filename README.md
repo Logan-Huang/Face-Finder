@@ -100,10 +100,6 @@ terminal).
 photos), heavily turned away, blurred, covered or in very dim light. Treat results as a strong
 filter rather than proof.
 
-**Why not a text model like [Laya](https://huggingface.co/convaiinnovations/laya)?** Laya and similar
-decision models only read text and JSON. They can't look at pixels, so they can't tell who is in a
-photo. That job needs vision models like the YuNet + SFace pair above.
-
 ## Development
 
 ```sh
