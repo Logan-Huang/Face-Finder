@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import threading
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -134,15 +135,56 @@ def thumbnail_data_url(img: np.ndarray, max_side: int = 480) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
 
-def iter_image_files(paths: list[Path], recursive: bool = False):
-    """Yield image files from a mix of file and folder paths, skipping hidden files."""
+@dataclass(frozen=True)
+class PhotoRef:
+    """A photo on disk, or one member of a .zip (read in memory, never extracted)."""
+
+    path: Path  # the file, or the .zip holding it
+    member: str | None = None
+
+    @property
+    def label(self) -> str:
+        return str(self.path) if self.member is None else f"{self.path}/{self.member}"
+
+
+def zip_member_is_photo(name: str) -> bool:
+    parts = name.split("/")
+    if name.endswith("/") or parts[0] == "__MACOSX" or any(p.startswith(".") for p in parts):
+        return False
+    return Path(name).suffix.lower() in IMAGE_EXTENSIONS
+
+
+def list_photos(paths: list[Path], recursive: bool = False, on_bad_zip=None) -> list[PhotoRef]:
+    """Photos from files, folders and .zip archives (also those found inside folders).
+
+    `recursive` only controls folders; inside a zip every folder is searched.
+    `on_bad_zip(path, exc)` is called for archives that can't be opened.
+    """
+    photos: list[PhotoRef] = []
+
+    def add_zip(path: Path) -> None:
+        try:
+            with zipfile.ZipFile(path) as zf:
+                photos.extend(PhotoRef(path, i.filename) for i in zf.infolist() if zip_member_is_photo(i.filename))
+        except Exception as exc:
+            if on_bad_zip:
+                on_bad_zip(path, exc)
+
     for path in paths:
         path = path.expanduser()
         if path.is_dir():
             children = path.rglob("*") if recursive else path.iterdir()
             for child in sorted(children):
                 hidden = any(part.startswith(".") for part in child.relative_to(path).parts)
-                if child.is_file() and child.suffix.lower() in IMAGE_EXTENSIONS and not hidden:
-                    yield child
+                if not child.is_file() or hidden:
+                    continue
+                if child.suffix.lower() == ".zip":
+                    add_zip(child)
+                elif child.suffix.lower() in IMAGE_EXTENSIONS:
+                    photos.append(PhotoRef(child))
         elif path.is_file():
-            yield path
+            if path.suffix.lower() == ".zip":
+                add_zip(path)
+            else:
+                photos.append(PhotoRef(path))
+    return photos

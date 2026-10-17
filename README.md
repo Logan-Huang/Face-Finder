@@ -45,25 +45,43 @@ The page is served by a program running on your computer and is only reachable f
 "Uploading" a photo there just hands it to that local program.
 
 1. **Who are you looking for?** Drop 1–5 clear photos of the person (see tips below).
-2. **Which photos should I search?** Drop photos or whole folders (JPEG, PNG, HEIC, WebP, TIFF...).
+2. **Which photos should I search?** Drop photos, whole folders or `.zip` files (JPEG, PNG, HEIC,
+   WebP, TIFF...). Zips are opened right in your browser, so there's no need to unzip them first.
 3. Click **Find this person**. Results come in as each photo is checked. Every face in a photo is
    checked, so group shots work, and the matching face gets a green box.
-4. Use the **Looser ↔ Stricter** slider to adjust the cut-off without rescanning, and
-   **Download matches (.zip)** to collect the matching photos.
+4. Use the **Looser ↔ Stricter** slider to adjust the cut-off without rescanning. Collect the
+   matching photos with **Download matches (.zip)**, or in Chrome and Edge, **Save matches to a
+   folder**, which writes them straight into a folder you pick (best for thousands of matches).
 
 Press `Ctrl+C` in the terminal to stop it.
 
-## Use it from the terminal (big folders)
+## Use it from the terminal
 
 ```sh
 # Search a folder (add -r to include sub-folders) and copy the matches somewhere
 uv run facefinder find ~/Pictures/Trip -r --ref me1.jpg --ref me2.jpg --copy-to ~/Pictures/Found
 
-# Also save every photo's score to a spreadsheet
-uv run facefinder find ~/Pictures/Trip --ref me1.jpg --csv scores.csv
+# Zips work too, without unzipping. --csv saves every photo's score as it goes
+uv run facefinder find Photos.zip --ref me1.jpg --csv scores.csv --copy-to Found
+
+# Stopped halfway (Ctrl+C, closed the terminal)? Add --resume to the same command to continue
+uv run facefinder find Photos.zip --ref me1.jpg --csv scores.csv --copy-to Found --resume
 ```
 
 Repeat `--ref` for each reference photo. `-t/--threshold` changes the cut-off (see below).
+
+## Big libraries (tens of thousands of photos)
+
+Both ways handle huge collections. They were tested with a single 70,000-photo `.zip`.
+
+- **Browser:** memory stays small no matter how many photos there are, because previews are only
+  made for the photos on screen and results are shown 200 at a time. Keep the tab open while it
+  searches; the page asks before you close it mid-search.
+- **Terminal:** best for very large jobs. It copies matches as it finds them, shows how long is
+  left, and with `--csv` it can `--resume` where it stopped.
+
+Time depends on photo size: about 70 ms per 12-megapixel photo on an Apple M-series Mac, so
+70,000 phone photos take roughly 1–1.5 hours.
 
 ## Tips for good results
 
@@ -92,9 +110,6 @@ There's no training step. The reference photos are just examples to compare agai
 A photo **matches** when any face in it scores at or above **0.363** against any reference photo.
 OpenCV recommends that cut-off for SFace. In a small test with public photos, different people
 scored 0.09–0.26 and the same person scored 0.66–1.0.
-
-Speed: about 55 ms per 12-megapixel photo on an Apple M-series Mac (~1,000 photos/minute from the
-terminal).
 
 **Limits:** like all face recognition, it struggles with faces that are tiny (back rows of big group
 photos), heavily turned away, blurred, covered or in very dim light. Treat results as a strong

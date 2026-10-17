@@ -88,3 +88,24 @@ def test_page_is_self_contained():
     html = _client().get("/").get_data(as_text=True)
     assert "Face Finder" in html
     assert "http://" not in html and "https://" not in html  # no CDNs, fonts or trackers
+
+
+def test_thumb_is_small_upright_jpeg():
+    img = Image.new("RGB", (1200, 800), "red")
+    exif = Image.Exif()
+    exif[0x0112] = 6  # stored sideways
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", exif=exif)
+    buf.seek(0)
+    client = _client()
+    resp = client.post("/api/thumb", data={"file": (buf, "big.jpg")})
+    assert resp.mimetype == "image/jpeg"
+    assert Image.open(io.BytesIO(resp.data)).size == (320, 480)  # rotated upright, longest side 480
+    bad = client.post("/api/thumb", data={"file": (io.BytesIO(b"x"), "bad.jpg")})
+    assert bad.status_code == 422
+
+
+def test_scan_results_carry_no_thumbnail():
+    embeddings = json.dumps([[1.0, 0.0]])
+    resp = _client().post("/api/scan", data={"file": (_jpeg("red"), "a.jpg"), "embeddings": embeddings}).get_json()
+    assert "thumb" not in resp

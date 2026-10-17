@@ -80,6 +80,8 @@
   .card .score { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
   .card.match .score { color: var(--accent); }
   .empty { color: var(--muted); padding: 24px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .more { text-align: center; margin-top: 20px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -106,18 +108,19 @@
 
     <section class="panel">
       <h2>2. Which photos should I search?</h2>
-      <p class="hint">Drop photos or whole folders. JPEG, PNG, HEIC and more.</p>
+      <p class="hint">Drop photos, whole folders or .zip files. JPEG, PNG, HEIC and more.</p>
       <div class="drop" id="photoDrop">
-        <strong>Drop photos or folders here</strong>
+        <strong>Drop photos, folders or .zip files here</strong>
         <div class="row">
           <label class="btn" for="photoInput">Choose photos</label>
           <label class="btn" for="folderInput">Choose a folder</label>
           <button id="clearPhotos" hidden>Clear</button>
         </div>
-        <input id="photoInput" type="file" accept="image/*,.heic,.heif" multiple>
+        <input id="photoInput" type="file" accept="image/*,.heic,.heif,.zip,application/zip" multiple>
         <input id="folderInput" type="file" webkitdirectory multiple>
       </div>
       <div class="status" id="photoStatus"></div>
+      <div class="errors" id="photoErrors"></div>
     </section>
   </div>
 
@@ -136,24 +139,30 @@
         <span>Stricter</span>
         <output id="thresholdOut"></output>
       </div>
-      <button id="downloadBtn">Download matches (.zip)</button>
+      <div class="actions">
+        <button id="saveBtn" hidden>Save matches to a folder…</button>
+        <button id="downloadBtn">Download matches (.zip)</button>
+      </div>
     </div>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty" hidden>Nothing here.</div>
+    <div class="more"><button id="moreBtn" hidden></button></div>
   </section>
 </main>
 
 <script>
 const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|heic|heif)$/i;
+const ZIP_RE = /\.zip$/i;
 const FRAME_ASPECT = 4 / 3;
 const CONCURRENCY = 2;
+const PAGE = 200; // result cards shown at a time
 const TABS = [
   ["match", "Matches"], ["nomatch", "Not matched"], ["noface", "No faces"], ["error", "Couldn't read"], ["all", "All"],
 ];
 
 const state = {
   threshold: 0.363, embeddings: [], refs: [], photos: [], results: [],
-  filter: "match", scanning: false, stale: false,
+  filter: "match", scanning: false, stale: false, saving: false, limit: PAGE,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -161,19 +170,27 @@ fetch("/api/config").then((r) => r.json()).then((c) => { state.threshold = c.thr
 
 // ---------- collecting files ----------
 
+// Every photo is an item { name, size, modified, open() -> Blob }; zipped photos are only unpacked when opened.
+const fileItem = (file, name) => ({ name, size: file.size, modified: file.lastModified, file, open: async () => file });
 const isHidden = (name) => name.split("/").some((part) => part.startsWith("."));
-const keepImages = (items) => items.filter((i) => IMAGE_RE.test(i.name) && !isHidden(i.name));
-const fromInput = (input) => [...input.files].map((file) => ({ file, name: file.webkitRelativePath || file.name }));
+const fromInput = (input) => [...input.files].map((file) => fileItem(file, file.webkitRelativePath || file.name));
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function skippedNote(names) {
+  if (!names.length) return "";
+  const shown = names.slice(0, 3).map((n) => n.split("/").pop()).join(", ");
+  return `Skipped ${plural(names.length, "file")} that ${names.length === 1 ? "isn't a photo" : "aren't photos"}: ${shown}${names.length > 3 ? ", …" : ""}`;
+}
 
 async function fromDrop(dataTransfer) {
   // Entries must be grabbed synchronously, before any await.
   const entries = [...dataTransfer.items].map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  if (!entries.length) return [...dataTransfer.files].map((file) => ({ file, name: file.name }));
+  if (!entries.length) return [...dataTransfer.files].map((file) => fileItem(file, file.name));
   const out = [];
   async function walk(entry, prefix) {
     if (entry.isFile) {
       const file = await new Promise((res, rej) => entry.file(res, rej));
-      out.push({ file, name: prefix + file.name });
+      out.push(fileItem(file, prefix + file.name));
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
       for (;;) {
@@ -193,29 +210,114 @@ function wireDrop(zone, onItems) {
   zone.addEventListener("drop", async (e) => {
     e.preventDefault();
     zone.classList.remove("over");
-    onItems(keepImages(await fromDrop(e.dataTransfer)));
+    onItems(await fromDrop(e.dataTransfer));
   });
 }
 // Dropping outside a zone would otherwise navigate away from the page.
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 
+// ---------- reading .zip files (in this browser; nothing is uploaded) ----------
+
+const u16 = (v, at) => v.getUint16(at, true);
+const u32 = (v, at) => v.getUint32(at, true);
+const u64 = (v, at) => Number(v.getBigUint64(at, true));
+const readBytes = async (blob, start, end) => new DataView(await blob.slice(start, end).arrayBuffer());
+
+async function zipEntries(zip) {
+  // The end-of-central-directory record is in the last 22 bytes, plus up to 64 KB of comment.
+  const tailStart = Math.max(0, zip.size - 65557);
+  const tail = await readBytes(zip, tailStart, zip.size);
+  let eocd = tail.byteLength - 22;
+  while (eocd >= 0 && u32(tail, eocd) !== 0x06054b50) eocd--;
+  if (eocd < 0) throw new Error("not a readable zip file");
+  let count = u16(tail, eocd + 10), dirSize = u32(tail, eocd + 12), dirStart = u32(tail, eocd + 16);
+  if (eocd >= 20 && u32(tail, eocd - 20) === 0x07064b50) {
+    // Zip64 (huge archives): a locator just before the record points to 64-bit values.
+    const at = u64(tail, eocd - 20 + 8);
+    const z64 = await readBytes(zip, at, at + 56);
+    if (u32(z64, 0) !== 0x06064b50) throw new Error("unsupported zip format");
+    count = u64(z64, 32); dirSize = u64(z64, 40); dirStart = u64(z64, 48);
+  }
+  const dir = await readBytes(zip, dirStart, dirStart + dirSize);
+  const utf8 = new TextDecoder();
+  const entries = [];
+  for (let p = 0, n = 0; n < count; n++) {
+    if (p + 46 > dir.byteLength || u32(dir, p) !== 0x02014b50) throw new Error("damaged zip file");
+    let compressed = u32(dir, p + 20), size = u32(dir, p + 24), offset = u32(dir, p + 42);
+    const nameLen = u16(dir, p + 28), extraLen = u16(dir, p + 30), commentLen = u16(dir, p + 32);
+    const name = utf8.decode(new Uint8Array(dir.buffer, p + 46, nameLen));
+    // Zip64 extra field: 64-bit versions of whichever values overflowed, in this order.
+    const extraEnd = p + 46 + nameLen + extraLen;
+    for (let e = p + 46 + nameLen; e + 4 <= extraEnd; e += 4 + u16(dir, e + 2)) {
+      if (u16(dir, e) !== 0x0001) continue;
+      let q = e + 4;
+      if (size === 0xffffffff) { size = u64(dir, q); q += 8; }
+      if (compressed === 0xffffffff) { compressed = u64(dir, q); q += 8; }
+      if (offset === 0xffffffff) offset = u64(dir, q);
+    }
+    entries.push({ name, encrypted: (u16(dir, p + 8) & 1) === 1, method: u16(dir, p + 10), compressed, size, offset });
+    p = extraEnd + commentLen;
+  }
+  return entries;
+}
+
+async function openZipEntry(zip, entry) {
+  const header = await readBytes(zip, entry.offset, entry.offset + 30);
+  if (u32(header, 0) !== 0x04034b50) throw new Error("damaged zip file");
+  const start = entry.offset + 30 + u16(header, 26) + u16(header, 28);
+  const data = zip.slice(start, start + entry.compressed);
+  if (entry.method === 0) return data; // stored as-is
+  return new Response(data.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+}
+
+// Split dropped/chosen items into photos (unpacking any .zip files) and things we can't use.
+async function collectPhotos(items) {
+  const photos = [], skipped = [], problems = [];
+  for (const item of items) {
+    if (isHidden(item.name)) continue;
+    if (IMAGE_RE.test(item.name)) { photos.push(item); continue; }
+    if (!ZIP_RE.test(item.name)) { skipped.push(item.name); continue; }
+    let entries;
+    try {
+      entries = await zipEntries(item.file);
+    } catch (err) {
+      problems.push(`${item.name}: ${err.message}`);
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.endsWith("/") || entry.name.startsWith("__MACOSX/") || isHidden(entry.name)) continue;
+      const name = `${item.name}/${entry.name}`;
+      if (!IMAGE_RE.test(entry.name)) skipped.push(name);
+      else if (entry.encrypted) problems.push(`${name}: password-protected zips aren't supported`);
+      else if (entry.method !== 0 && entry.method !== 8) problems.push(`${name}: unsupported zip compression`);
+      else photos.push({ name, size: entry.size, modified: item.modified, open: () => openZipEntry(item.file, entry) });
+    }
+  }
+  return { photos, skipped, problems };
+}
+
 // ---------- step 1: reference photos ----------
 
 wireDrop($("refDrop"), addReferences);
-$("refInput").addEventListener("change", (e) => { addReferences(keepImages(fromInput(e.target))); e.target.value = ""; });
+$("refInput").addEventListener("change", (e) => { addReferences(fromInput(e.target)); e.target.value = ""; });
 
-async function addReferences(items) {
+async function addReferences(all) {
+  const visible = all.filter((i) => !isHidden(i.name));
+  const items = visible.filter((i) => IMAGE_RE.test(i.name));
+  const zips = visible.filter((i) => ZIP_RE.test(i.name)).length;
+  const notes = [skippedNote(visible.filter((i) => !IMAGE_RE.test(i.name) && !ZIP_RE.test(i.name)).map((i) => i.name))];
+  if (zips) notes.push(".zip files go in step 2, the photos to search.");
+  $("refErrors").textContent = notes.filter(Boolean).join("\n");
   if (!items.length) return;
   $("refStatus").textContent = "Learning their face…";
-  $("refErrors").textContent = "";
   const form = new FormData();
   items.forEach((i) => form.append("files", i.file, i.name));
   try {
     const data = await (await fetch("/api/reference", { method: "POST", body: form })).json();
     state.refs.push(...data.refs);
     state.embeddings.push(...data.embeddings);
-    $("refErrors").textContent = data.errors.join("\n");
+    $("refErrors").textContent = [...data.errors, ...notes].filter(Boolean).join("\n");
     referencesChanged();
   } catch {
     $("refErrors").textContent = "Couldn't reach Face Finder. Is it still running in the terminal?";
@@ -253,27 +355,33 @@ function referencesChanged() {
 // ---------- step 2: photos to search ----------
 
 wireDrop($("photoDrop"), addPhotos);
-$("photoInput").addEventListener("change", (e) => { addPhotos(keepImages(fromInput(e.target))); e.target.value = ""; });
-$("folderInput").addEventListener("change", (e) => { addPhotos(keepImages(fromInput(e.target))); e.target.value = ""; });
-$("clearPhotos").onclick = () => { state.photos = []; photosChanged(); };
+$("photoInput").addEventListener("change", (e) => { addPhotos(fromInput(e.target)); e.target.value = ""; });
+$("folderInput").addEventListener("change", (e) => { addPhotos(fromInput(e.target)); e.target.value = ""; });
+$("clearPhotos").onclick = () => { state.photos = []; $("photoErrors").textContent = ""; photosChanged(); };
 
-function addPhotos(items) {
-  const key = (p) => `${p.name}|${p.file.size}|${p.file.lastModified}`;
+async function addPhotos(items) {
+  if (items.some((i) => ZIP_RE.test(i.name))) $("photoStatus").textContent = "Opening zip…";
+  const { photos, skipped, problems } = await collectPhotos(items);
+  const key = (p) => `${p.name}|${p.size}|${p.modified}`;
   const seen = new Set(state.photos.map(key));
-  for (const item of items) {
+  for (const item of photos) {
     if (!seen.has(key(item))) { seen.add(key(item)); state.photos.push(item); }
   }
+  const listed = problems.length > 10 ? [...problems.slice(0, 10), `…and ${(problems.length - 10).toLocaleString()} more`] : problems;
+  $("photoErrors").textContent = [...listed, skippedNote(skipped)].filter(Boolean).join("\n");
   photosChanged();
 }
 
 function photosChanged() {
   const n = state.photos.length;
-  $("photoStatus").textContent = n ? `${n} photo${n === 1 ? "" : "s"} ready to search` : "";
+  $("photoStatus").textContent = n ? `${n.toLocaleString()} photo${n === 1 ? "" : "s"} ready to search` : "";
   $("clearPhotos").hidden = !n;
   updateScanButton();
 }
 
 // ---------- scanning ----------
+
+const fmt = (n) => n.toLocaleString();
 
 function updateScanButton() {
   const btn = $("scanBtn");
@@ -291,36 +399,59 @@ $("scanBtn").onclick = () => {
   $("scanBtn").textContent = "Stopping…";
 };
 
+// A big search can take an hour; ask before closing the tab throws that away.
+window.addEventListener("beforeunload", (e) => { if (state.scanning) e.preventDefault(); });
+
+// POST to the local server, retrying a few times if the connection hiccups.
+async function post(url, form) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, { method: "POST", body: form });
+    } catch (err) {
+      if (attempt === 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+}
+
+function timeLeft(seconds) {
+  if (seconds < 90) return "about a minute left";
+  const minutes = Math.round(seconds / 60);
+  return minutes < 90 ? `about ${minutes} min left` : `about ${(minutes / 60).toFixed(1)} hours left`;
+}
+
 async function scan() {
   state.scanning = true;
   state.stale = false;
-  state.results = [];
-  $("grid").replaceChildren();
+  clearResults();
   $("results").hidden = false;
   $("progress").style.visibility = "visible";
   updateScanButton();
 
   const embeddings = JSON.stringify(state.embeddings);
-  const queue = [...state.photos];
-  const total = queue.length;
-  let done = 0;
+  const photos = state.photos.slice();
+  const total = photos.length;
+  const started = performance.now();
+  let next = 0, done = 0;
   const worker = async () => {
-    while (state.scanning && queue.length) {
-      const item = queue.shift();
-      const form = new FormData();
-      form.append("file", item.file, item.name);
-      form.append("embeddings", embeddings);
+    while (state.scanning && next < total) {
+      const item = photos[next++];
       let result;
       try {
-        result = await (await fetch("/api/scan", { method: "POST", body: form })).json();
+        const form = new FormData();
+        form.append("file", await item.open(), item.name);
+        form.append("embeddings", embeddings);
+        result = await (await post("/api/scan", form)).json();
       } catch {
         result = { name: item.name, error: "scan failed" };
       }
       result.item = item;
       state.results.push(result);
       done++;
+      const secondsLeft = ((performance.now() - started) / 1000 / done) * (total - done);
       $("progress").firstElementChild.style.width = `${(100 * done) / total}%`;
-      $("scanStatus").textContent = `Searched ${done} of ${total}`;
+      $("scanStatus").textContent =
+        `Searched ${fmt(done)} of ${fmt(total)}` + (done >= 20 && done < total ? ` · ${timeLeft(secondsLeft)}` : "");
       scheduleRender();
     }
   };
@@ -330,11 +461,73 @@ async function scan() {
   state.scanning = false;
   $("progress").style.visibility = "hidden";
   updateScanButton();
-  $("scanStatus").textContent = `${stopped ? "Stopped" : "Done"}: searched ${done} of ${total} photos.`;
+  $("scanStatus").textContent = `${stopped ? "Stopped" : "Done"}: searched ${fmt(done)} of ${fmt(total)} photos.`;
   render();
 }
 
 // ---------- results ----------
+// Every photo keeps only its scores. Cards and previews exist just for the current page of
+// results, so memory stays small even for tens of thousands of photos.
+
+const THUMB_CONCURRENCY = 3;
+let displayed = new Set();
+const thumbQueue = [];
+let thumbsLoading = 0;
+
+const thumbObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) requestThumb(e.target.result);
+}, { rootMargin: "600px" });
+
+function requestThumb(r) {
+  if (!r || r.error || r.thumbState) return;
+  r.thumbState = "queued";
+  thumbQueue.push(r);
+  pumpThumbs();
+}
+
+function pumpThumbs() {
+  while (thumbsLoading < THUMB_CONCURRENCY && thumbQueue.length) {
+    const r = thumbQueue.shift();
+    if (!displayed.has(r)) { r.thumbState = undefined; continue; } // left the page before its turn
+    r.thumbState = "loading";
+    thumbsLoading++;
+    loadThumb(r).finally(() => { thumbsLoading--; pumpThumbs(); });
+  }
+}
+
+async function loadThumb(r) {
+  let url = null;
+  try {
+    const form = new FormData();
+    form.append("file", await r.item.open(), r.item.name);
+    const res = await post("/api/thumb", form);
+    if (res.ok) url = URL.createObjectURL(await res.blob());
+  } catch {}
+  if (url && displayed.has(r)) {
+    r.thumbUrl = url;
+    r.img.src = url;
+    r.thumbState = "done";
+  } else {
+    if (url) URL.revokeObjectURL(url);
+    r.thumbState = displayed.has(r) ? "failed" : undefined;
+  }
+}
+
+function evict(r) {
+  if (r.el) thumbObserver.unobserve(r.el);
+  if (r.thumbUrl) URL.revokeObjectURL(r.thumbUrl);
+  r.thumbUrl = r.el = r.img = r.boxes = null;
+  if (r.thumbState === "done" || r.thumbState === "failed") r.thumbState = undefined;
+}
+
+function clearResults() {
+  for (const r of displayed) evict(r);
+  displayed = new Set();
+  thumbQueue.length = 0;
+  state.results = [];
+  state.limit = PAGE;
+  $("grid").replaceChildren();
+}
 
 function category(r) {
   if (r.error) return "error";
@@ -352,9 +545,8 @@ function frame(thumb, aspect, faces) {
   const h = aspect >= FRAME_ASPECT ? (100 * FRAME_ASPECT) / aspect : 100;
   Object.assign(pic.style, { width: `${w}%`, height: `${h}%`, left: `${(100 - w) / 2}%`, top: `${(100 - h) / 2}%` });
   const img = document.createElement("img");
-  img.src = thumb;
+  if (thumb) img.src = thumb;
   img.alt = "";
-  img.loading = "lazy";
   pic.append(img);
   for (const face of faces) {
     const [x, y, bw, bh] = face.box;
@@ -362,7 +554,6 @@ function frame(thumb, aspect, faces) {
     b.className = "box" + (face.hit ? " hit" : "");
     Object.assign(b.style, { left: `${x * 100}%`, top: `${y * 100}%`, width: `${bw * 100}%`, height: `${bh * 100}%` });
     if (face.score !== undefined) b.title = `similarity ${face.score.toFixed(2)}`;
-    face.el = b;
     pic.append(b);
   }
   outer.append(pic);
@@ -373,24 +564,28 @@ function card(r) {
   if (r.el) return r.el;
   const el = document.createElement("figure");
   el.className = "card";
+  el.result = r;
   const caption = document.createElement("figcaption");
   const name = document.createElement("span");
   name.className = "name";
-  name.textContent = r.name;
-  name.title = r.name;
+  name.textContent = r.name.split("/").pop();
+  name.title = r.name; // full path, including any folder or .zip it came from
   const score = document.createElement("span");
   score.className = "score";
   if (r.error) {
     el.append(Object.assign(document.createElement("div"), { className: "frame" }));
     score.textContent = r.error;
   } else {
-    el.append(frame(r.thumb, r.aspect, r.faces));
+    el.append(frame(null, r.aspect, r.faces));
     score.textContent = r.faces.length ? r.best.toFixed(2) : "no faces";
     score.title = "Best similarity to the person (higher = more alike)";
   }
   caption.append(name, score);
   el.append(caption);
   r.el = el;
+  r.img = el.querySelector("img");
+  r.boxes = [...el.querySelectorAll(".box")];
+  if (!r.error) thumbObserver.observe(el);
   return el;
 }
 
@@ -398,7 +593,8 @@ let renderQueued = false;
 function scheduleRender() {
   if (renderQueued) return;
   renderQueued = true;
-  setTimeout(() => { renderQueued = false; render(); }, 200);
+  // Sorting tens of thousands of results is cheap, but not 5 times a second.
+  setTimeout(() => { renderQueued = false; render(); }, state.results.length > 5000 ? 1000 : 250);
 }
 
 function render() {
@@ -410,25 +606,33 @@ function render() {
     if (state.filter === "all" || state.filter === cat) shown.push(r);
   }
   shown.sort((a, b) => (b.best ?? -1) - (a.best ?? -1));
+  const page = shown.slice(0, state.limit);
 
   $("tabs").replaceChildren(...TABS.filter(([key]) => key !== "error" || counts.error).map(([key, label]) => {
     const b = document.createElement("button");
-    b.textContent = `${label} (${counts[key]})`;
+    b.textContent = `${label} (${fmt(counts[key])})`;
     b.setAttribute("aria-pressed", state.filter === key);
-    b.onclick = () => { state.filter = key; render(); };
+    b.onclick = () => { state.filter = key; state.limit = PAGE; render(); };
     return b;
   }));
 
-  const grid = $("grid");
-  const wanted = shown.map(card);
-  for (const r of shown) {
+  const onPage = new Set(page);
+  for (const r of displayed) if (!onPage.has(r)) evict(r);
+  displayed = onPage;
+  const cards = document.createDocumentFragment();
+  for (const r of page) {
+    cards.append(card(r));
     r.el.classList.toggle("match", category(r) === "match");
-    for (const f of r.faces || []) f.el.classList.toggle("hit", f.score >= state.threshold);
+    r.boxes.forEach((b, i) => b.classList.toggle("hit", r.faces[i].score >= state.threshold));
   }
-  grid.replaceChildren(...wanted);
+  $("grid").replaceChildren(cards);
   $("empty").hidden = shown.length > 0;
-  $("downloadBtn").disabled = !counts.match || state.scanning;
+  const rest = shown.length - page.length;
+  $("moreBtn").hidden = rest <= 0;
+  $("moreBtn").textContent = `Show ${fmt(Math.min(PAGE, rest))} more (${fmt(rest)} not shown yet)`;
+  $("downloadBtn").disabled = $("saveBtn").disabled = !counts.match || state.scanning || state.saving;
 }
+$("moreBtn").onclick = () => { state.limit += PAGE; render(); };
 
 function syncThreshold() {
   $("threshold").value = state.threshold;
@@ -437,25 +641,77 @@ function syncThreshold() {
 }
 $("threshold").addEventListener("input", (e) => { state.threshold = parseFloat(e.target.value); syncThreshold(); });
 
+// ---------- getting the matches out ----------
+
+const currentMatches = () => state.results.filter((r) => category(r) === "match");
+
 $("downloadBtn").onclick = async () => {
-  const matches = state.results.filter((r) => category(r) === "match");
+  const matches = currentMatches();
   const btn = $("downloadBtn");
   btn.disabled = true;
   btn.textContent = "Preparing zip…";
   try {
     const form = new FormData();
-    matches.forEach((r) => form.append("files", r.item.file, r.item.name));
+    for (const r of matches) form.append("files", await r.item.open(), r.item.name);
     const res = await fetch("/api/zip", { method: "POST", body: form });
     if (!res.ok) throw new Error(res.statusText);
     const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await res.blob()), download: "matches.zip" });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   } catch {
-    alert("Couldn't build the zip. Is Face Finder still running in the terminal?");
+    alert("Couldn't build the zip. For thousands of matches, try “Save matches to a folder” or the terminal command.");
   } finally {
     btn.textContent = "Download matches (.zip)";
     btn.disabled = false;
   }
+};
+
+// Chrome and Edge can write straight into a folder, one photo at a time: no giant zip in memory.
+async function freeName(dir, name) {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 0; ; i++) {
+    const candidate = i ? `${stem}_${i}${ext}` : name;
+    try {
+      await dir.getFileHandle(candidate); // exists: never overwrite, try the next name
+    } catch (err) {
+      if (err.name === "NotFoundError") return candidate;
+      throw err;
+    }
+  }
+}
+
+$("saveBtn").hidden = !window.showDirectoryPicker;
+$("saveBtn").onclick = async () => {
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: "face-finder-matches", mode: "readwrite" });
+  } catch {
+    return; // cancelled
+  }
+  const matches = currentMatches();
+  const btn = $("saveBtn");
+  state.saving = true;
+  render();
+  let saved = 0, failed = 0;
+  for (const r of matches) {
+    btn.textContent = `Saving ${fmt(saved + failed + 1)} of ${fmt(matches.length)}…`;
+    try {
+      const handle = await dir.getFileHandle(await freeName(dir, r.item.name.split("/").pop()), { create: true });
+      const out = await handle.createWritable();
+      await out.write(await r.item.open());
+      await out.close();
+      saved++;
+    } catch {
+      failed++;
+    }
+  }
+  state.saving = false;
+  btn.textContent = "Save matches to a folder…";
+  render();
+  $("scanStatus").textContent =
+    `Saved ${fmt(saved)} photo${saved === 1 ? "" : "s"} to “${dir.name}”.` + (failed ? ` ${fmt(failed)} couldn't be saved.` : "");
 };
 
 syncThreshold();

@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from facefinder.cli import _unique_path
-from facefinder.engine import Face, PhotoError, iter_image_files, load_image, reference_face, similarity
+from facefinder.engine import Face, PhotoError, list_photos, load_image, reference_face, similarity
 from facefinder.web import _unique_name
 
 
@@ -65,7 +65,7 @@ def test_load_image_reads_heic():
     assert load_image(buf).shape == (24, 32, 3)
 
 
-def test_iter_image_files_skips_hidden_and_non_images(tmp_path):
+def test_list_photos_skips_hidden_and_non_images(tmp_path):
     (tmp_path / "a.jpg").touch()
     (tmp_path / "b.HEIC").touch()
     (tmp_path / "notes.txt").touch()
@@ -74,8 +74,8 @@ def test_iter_image_files_skips_hidden_and_non_images(tmp_path):
     (tmp_path / "sub" / "c.png").touch()
     (tmp_path / ".thumbs").mkdir()
     (tmp_path / ".thumbs" / "d.jpg").touch()
-    flat = {p.name for p in iter_image_files([tmp_path])}
-    deep = {p.name for p in iter_image_files([tmp_path], recursive=True)}
+    flat = {p.path.name for p in list_photos([tmp_path])}
+    deep = {p.path.name for p in list_photos([tmp_path], recursive=True)}
     assert flat == {"a.jpg", "b.HEIC"}
     assert deep == {"a.jpg", "b.HEIC", "c.png"}
 

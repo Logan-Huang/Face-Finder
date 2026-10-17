@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import tempfile
@@ -11,7 +12,9 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
+from PIL import Image, ImageOps
+from waitress import create_server
 
 from .engine import (
     MATCH_THRESHOLD, Face, FaceEngine, PhotoError, load_image, reference_face, similarity, thumbnail_data_url,
@@ -75,13 +78,23 @@ def create_app(engine: FaceEngine) -> Flask:
         except PhotoError as exc:
             return jsonify(name=upload.filename, error=str(exc))
         scores = similarity(faces, references)
+        # No thumbnail here: with tens of thousands of photos the page would run out of memory.
+        # It asks /api/thumb for previews of just the photos on screen instead.
         return jsonify(
             name=upload.filename,
-            thumb=thumbnail_data_url(img),
             aspect=_aspect(img),
             faces=[{"box": _box(f, img), "score": s} for f, s in zip(faces, scores)],
             best=max(scores, default=None),
         )
+
+    @app.post("/api/thumb")
+    def thumb():
+        """A small upright JPEG preview of one photo."""
+        try:
+            data = _thumbnail_jpeg(request.files["file"].stream)
+        except Exception:
+            return jsonify(error="not a readable image"), 422
+        return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/zip")
     def make_zip():
@@ -106,6 +119,16 @@ def _box(face: Face, img: np.ndarray) -> list[float]:
     return [x / w, y / h, bw / w, bh / h]
 
 
+def _thumbnail_jpeg(stream, max_side: int = 480) -> bytes:
+    with Image.open(stream) as img:
+        img.draft("RGB", (max_side, max_side))  # JPEGs decode straight at reduced size: much faster
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img.thumbnail((max_side, max_side))
+        out = io.BytesIO()
+        img.save(out, "JPEG", quality=82)
+        return out.getvalue()
+
+
 def _aspect(img: np.ndarray) -> float:
     return img.shape[1] / img.shape[0]
 
@@ -123,10 +146,19 @@ def _unique_name(name: str, used: set[str]) -> str:
 
 
 def serve(port: int = 8765, open_browser: bool = True) -> None:
-    engine = FaceEngine()
-    app = create_app(engine)
+    app = create_app(FaceEngine())
+    # Waitress keeps connections open between requests. Flask's built-in server opens a new one per
+    # photo, and tens of thousands of photos use up the computer's supply of network ports.
+    try:
+        server = create_server(app, host="127.0.0.1", port=port, threads=8)
+    except OSError:
+        print(f"Port {port} is already in use. Is Face Finder already open? Try --port {port + 1}.")
+        return
     url = f"http://127.0.0.1:{port}/"
     print(f"Face Finder is running at {url}  (only reachable from this computer; Ctrl+C to stop)")
     if open_browser:
-        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    app.run(host="127.0.0.1", port=port, threaded=True)
+        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        print("Stopped.")
