@@ -69,7 +69,8 @@ uv run facefinder find ~/Pictures/Trip -r --ref me1.jpg --ref me2.jpg --copy-to 
 # Zips work too, without unzipping. --csv saves every photo's score as it goes
 uv run facefinder find Photos.zip --ref me1.jpg --csv scores.csv --copy-to Found
 
-# Stopped halfway (Ctrl+C, closed the terminal)? Add --resume to the same command to continue
+# Stopped halfway (Ctrl+C, closed the terminal)? Add --resume to the same command to continue.
+# Photos it couldn't read last time (say a network drive dropped) are tried again.
 uv run facefinder find Photos.zip --ref me1.jpg --csv scores.csv --copy-to Found --resume
 ```
 

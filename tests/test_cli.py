@@ -111,6 +111,29 @@ def test_resume_skips_done_and_appends_without_second_header(tmp_path, capsys):
     assert csv_path.read_text().count("photo,result") == 1
 
 
+def test_resume_retries_photos_that_could_not_be_read(tmp_path, capsys):
+    folder = tmp_path / "photos"
+    folder.mkdir()
+    (folder / "a.jpg").write_bytes(_jpeg("red"))
+    (folder / "b.jpg").write_bytes(b"not reachable right now")  # e.g. a network drive dropped
+    csv_path = tmp_path / "out.csv"
+    _run(tmp_path, folder, "--csv", csv_path)
+    assert {r["photo"].rsplit("/", 1)[1]: r["result"] for r in _rows(csv_path)} == {"a.jpg": "match", "b.jpg": "error"}
+
+    (folder / "b.jpg").write_bytes(_jpeg("red"))  # the drive is back
+    with csv_path.open("a") as f:
+        f.write(f"{folder / 'c.jpg'},ma")  # a row cut off when the last run was interrupted
+    (folder / "c.jpg").write_bytes(_jpeg("lime"))
+    capsys.readouterr()
+    assert _run(tmp_path, folder, "--csv", csv_path, "--resume") == 0
+    out = capsys.readouterr()
+    assert "Resuming: 1 photo(s) already done, trying 2 again that couldn't be read last time" in out.err
+    assert "b.jpg" in out.out and "a.jpg" not in out.out  # only the retried photo is reported anew
+    rows = {r["photo"].rsplit("/", 1)[1]: r["result"] for r in _rows(csv_path)}
+    assert rows == {"a.jpg": "match", "b.jpg": "match", "c.jpg": "no match"}
+    assert len(_rows(csv_path)) == 3 and csv_path.read_text().count("photo,result") == 1
+
+
 def test_resume_requires_csv(tmp_path, capsys):
     assert _run(tmp_path, tmp_path, "--resume") == 2
     assert "--resume needs --csv" in capsys.readouterr().err
