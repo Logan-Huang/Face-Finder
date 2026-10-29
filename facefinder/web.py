@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import tempfile
 import threading
@@ -11,17 +12,19 @@ import webbrowser
 import zipfile
 from pathlib import Path
 
+import cv2
 import numpy as np
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 from PIL import Image, ImageOps
 from waitress import create_server
 
 from .engine import (
-    MATCH_THRESHOLD, Face, FaceEngine, PhotoError, load_image, reference_face, similarity, thumbnail_data_url,
+    MATCH_THRESHOLD, Face, FaceEngine, PhotoError, load_image, similarity, thumbnail_data_url,
 )
 
 STATIC = Path(__file__).parent / "static"
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
+MAX_REFERENCE_FACES = 12  # a crowd shot offers its 12 largest faces to choose from
 
 
 def create_app(engine: FaceEngine) -> Flask:
@@ -44,8 +47,8 @@ def create_app(engine: FaceEngine) -> Flask:
 
     @app.post("/api/reference")
     def reference():
-        """Learn the person's face from one or more reference photos."""
-        refs, embeddings, errors = [], [], []
+        """Every face in each example photo, largest first, so the page can let you pick the right one."""
+        refs, errors = [], []
         for upload in request.files.getlist("files"):
             try:
                 img = load_image(upload.stream)
@@ -53,38 +56,40 @@ def create_app(engine: FaceEngine) -> Flask:
             except PhotoError as exc:
                 errors.append(f"{upload.filename}: {exc}")
                 continue
-            face = reference_face(faces)
-            if face is None:
+            if not faces:
                 errors.append(f"{upload.filename}: no face found")
                 continue
-            embeddings.append(face.embedding.tolist())
+            faces = sorted(faces, key=lambda f: f.area, reverse=True)[:MAX_REFERENCE_FACES]
             refs.append({
                 "name": upload.filename,
                 "thumb": thumbnail_data_url(img),
                 "aspect": _aspect(img),
-                "faces": [_box(face, img)],
-                "note": f"{len(faces)} faces found; using the largest" if len(faces) > 1 else None,
+                "faces": [
+                    {"box": _box(f, img), "embedding": f.embedding.tolist(), "crop": _face_crop(img, f)} for f in faces
+                ],
             })
-        return jsonify(refs=refs, embeddings=embeddings, errors=errors)
+        return jsonify(refs=refs, errors=errors)
 
     @app.post("/api/scan")
     def scan():
-        """Score every face in one photo against the reference faceprints."""
+        """Score every face in one photo against each person's example faceprints."""
         upload = request.files["file"]
-        references = np.asarray(json.loads(request.form["embeddings"]), np.float32)
+        people = [np.asarray(refs, np.float32) for refs in json.loads(request.form["people"])]
         try:
             img = load_image(upload.stream)
             faces = engine.faces(img)
         except PhotoError as exc:
             return jsonify(name=upload.filename, error=str(exc))
-        scores = similarity(faces, references)
+        per_person = [similarity(faces, refs) for refs in people]
         # No thumbnail here: with tens of thousands of photos the page would run out of memory.
         # It asks /api/thumb for previews of just the photos on screen instead.
         return jsonify(
             name=upload.filename,
             aspect=_aspect(img),
-            faces=[{"box": _box(f, img), "score": s} for f, s in zip(faces, scores)],
-            best=max(scores, default=None),
+            faces=[
+                {"box": _box(f, img), "scores": [round(scores[i], 4) for scores in per_person]}
+                for i, f in enumerate(faces)
+            ],
         )
 
     @app.post("/api/thumb")
@@ -98,12 +103,14 @@ def create_app(engine: FaceEngine) -> Flask:
 
     @app.post("/api/zip")
     def make_zip():
-        """Bundle the photos the browser sends back (the matches) into one download."""
+        """Bundle the photos the browser sends back (the matches) into one download, a folder per person."""
         out = tempfile.SpooledTemporaryFile(max_size=64 << 20)
         used: set[str] = set()
+        folders = request.form.getlist("folders")
         with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as archive:
-            for upload in request.files.getlist("files"):
-                name = _unique_name(Path(upload.filename or "photo").name, used)
+            for i, upload in enumerate(request.files.getlist("files")):
+                folder = _safe_folder(folders[i]) if i < len(folders) else ""
+                name = _unique_name(Path(upload.filename or "photo").name, used, folder)
                 with archive.open(name, "w", force_zip64=True) as dest:
                     shutil.copyfileobj(upload.stream, dest)
         out.seek(0)
@@ -133,16 +140,33 @@ def _aspect(img: np.ndarray) -> float:
     return img.shape[1] / img.shape[0]
 
 
-def _unique_name(name: str, used: set[str]) -> str:
+def _face_crop(img: np.ndarray, face: Face, size: int = 96) -> str:
+    """A square close-up of one face, for picking who's who in a group photo."""
+    h, w = img.shape[:2]
+    x, y, bw, bh = face.box
+    side = max(1, int(min(max(bw, bh) * 1.5, w, h)))
+    left = int(min(max(x + bw / 2 - side / 2, 0), w - side))
+    top = int(min(max(y + bh / 2 - side / 2, 0), h - side))
+    crop = cv2.resize(img[top:top + side, left:left + side], (size, size), interpolation=cv2.INTER_AREA)
+    return thumbnail_data_url(crop, size)
+
+
+def _safe_folder(name: str) -> str:
+    """A person's name made safe to use as a folder name inside the zip."""
+    return re.sub(r"[^\w .()-]+", "", name).strip(" .")[:60] or "Person"
+
+
+def _unique_name(name: str, used: set[str], folder: str = "") -> str:
     stem, dot, ext = name.rpartition(".")
     if not dot:
         stem, ext = name, ""
+    prefix = f"{folder}/" if folder else ""
     candidate, n = name, 1
-    while candidate.lower() in used:
+    while (prefix + candidate).lower() in used:
         candidate = f"{stem}_{n}{dot}{ext}"
         n += 1
-    used.add(candidate.lower())
-    return candidate
+    used.add((prefix + candidate).lower())
+    return prefix + candidate
 
 
 def serve(port: int = 8765, open_browser: bool = True) -> None:

@@ -10,11 +10,13 @@
     --bg: #f6f6f3; --surface: #ffffff; --surface-2: #efefeb; --text: #1d1d1b; --muted: #6b6b66;
     --border: #dcdcd6; --accent: #1f7a4d; --accent-soft: #e3f1e9; --other: #ffffffcc; --danger: #b3261e;
     --radius: 12px;
+    --p0: #1f9d55; --p1: #2f6fdb; --p2: #a43fd0; --p3: #d9730d; --p4: #d23c77; --p5: #0e8fa0;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #141413; --surface: #1e1e1c; --surface-2: #2a2a27; --text: #ececea; --muted: #9b9b95;
       --border: #383834; --accent: #4cc38a; --accent-soft: #1b3226; --other: #ffffffaa; --danger: #f2b8b5;
+      --p0: #4cc38a; --p1: #6d9eff; --p2: #c88bf0; --p3: #f5a54a; --p4: #f27aa8; --p5: #4cc9d9;
     }
   }
   * { box-sizing: border-box; }
@@ -28,7 +30,7 @@
   h2 { font-size: 17px; margin: 0 0 4px; }
   .private { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
   .private::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .drop {
@@ -49,12 +51,34 @@
   input[type=file] { display: none; }
   .refs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
   .ref { width: 112px; position: relative; }
+  .ref.multi { width: 232px; }
   .ref .note { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.3; }
+  .ref.multi .box { cursor: pointer; }
+  .ref .note.ask { color: var(--text); font-weight: 600; }
+  .ref .box:not(.hit) { border-style: dashed; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { padding: 0; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 2px solid transparent; background: none; }
+  .chip img { width: 100%; height: 100%; display: block; }
+  .chip[aria-pressed=true] { border-color: var(--pc); box-shadow: 0 0 0 2px var(--pc); }
+  .person { border: 1px solid var(--border); border-left: 4px solid var(--pc); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .person-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .person-name {
+    flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: transparent;
+    border: 1px solid transparent; border-radius: 6px; padding: 3px 6px;
+  }
+  .person-name:hover, .person-name:focus { border-color: var(--border); background: var(--surface); outline: none; }
+  .person .drop { padding: 14px; }
+  .linkish { background: none; border: none; color: var(--muted); font-size: 13px; padding: 4px 6px; }
+  .linkish:hover { color: var(--danger); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); flex: none; display: inline-block; }
+  .tabs .dot { margin-right: 6px; }
+  .add-person { width: 100%; }
   .ref .remove {
     position: absolute; top: 4px; right: 4px; z-index: 2; width: 22px; height: 22px; padding: 0; border-radius: 50%;
     font-size: 13px; line-height: 1; background: #000a; color: #fff; border: none;
   }
   .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 1.5em; }
+  .status.alert { color: var(--danger); }
   .errors { color: var(--danger); font-size: 13px; margin-top: 8px; white-space: pre-line; }
   .go { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 24px 0 8px; }
   .progress { flex: 1 1 240px; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; visibility: hidden; }
@@ -68,17 +92,21 @@
   .strict output { font-variant-numeric: tabular-nums; color: var(--text); min-width: 3ch; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0; }
-  .card.match { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card.match { border-color: var(--pc, var(--accent)); box-shadow: 0 0 0 1px var(--pc, var(--accent)); }
   .frame { position: relative; aspect-ratio: 4 / 3; background: var(--surface-2); }
   .ref .frame { border-radius: 8px; overflow: hidden; }
   .pic { position: absolute; }
   .pic img { display: block; width: 100%; height: 100%; }
   .box { position: absolute; border: 2px solid var(--other); border-radius: 3px; box-shadow: 0 0 0 1px #0006; }
-  .box.hit { border-color: #3ddc84; border-width: 3px; }
+  .box.hit { border-color: var(--pc, #3ddc84); border-width: 3px; }
+  .box.hit[data-name]::after {
+    content: attr(data-name); position: absolute; left: -3px; bottom: 100%; padding: 0 4px; white-space: nowrap;
+    font-size: 10px; line-height: 15px; color: #fff; background: var(--pc); border-radius: 3px 3px 0 0;
+  }
   .card figcaption { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; font-size: 12px; }
   .card .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
   .card .score { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-  .card.match .score { color: var(--accent); }
+  .card.match .score { color: var(--pc, var(--accent)); }
   .empty { color: var(--muted); padding: 24px 0; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .more { text-align: center; margin-top: 20px; }
@@ -95,15 +123,9 @@
   <div class="steps">
     <section class="panel">
       <h2>1. Who are you looking for?</h2>
-      <p class="hint">Add 1–5 clear photos of the person. Different angles and lighting help.</p>
-      <div class="drop" id="refDrop">
-        <strong>Drop photos of the person here</strong>
-        <div class="row"><label class="btn" for="refInput">Choose photos</label></div>
-        <input id="refInput" type="file" accept="image/*,.heic,.heif" multiple>
-      </div>
-      <div class="refs" id="refs"></div>
-      <div class="status" id="refStatus"></div>
-      <div class="errors" id="refErrors"></div>
+      <p class="hint">Add 1–5 clear photos of each person. Different angles and lighting help. You can look for several people at once.</p>
+      <div id="people"></div>
+      <button id="addPerson" class="add-person">+ Add another person</button>
     </section>
 
     <section class="panel">
@@ -156,13 +178,10 @@ const ZIP_RE = /\.zip$/i;
 const FRAME_ASPECT = 4 / 3;
 const CONCURRENCY = 2;
 const PAGE = 200; // result cards shown at a time
-const TABS = [
-  ["match", "Matches"], ["nomatch", "Not matched"], ["noface", "No faces"], ["error", "Couldn't read"], ["all", "All"],
-];
 
 const state = {
-  threshold: 0.363, embeddings: [], refs: [], photos: [], results: [],
-  filter: "match", scanning: false, stale: false, saving: false, limit: PAGE,
+  threshold: 0.4, people: [], photos: [], results: [], searched: [],
+  filter: "p0", scanning: false, stale: false, saving: false, limit: PAGE,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -297,57 +316,183 @@ async function collectPhotos(items) {
   return { photos, skipped, problems };
 }
 
-// ---------- step 1: reference photos ----------
+// ---------- step 1: the people to look for ----------
+// Each person has a name, a colour and example photos. A group photo offers every face in it and
+// you pick which one is this person, so one photo can even be an example for several people.
 
-wireDrop($("refDrop"), addReferences);
-$("refInput").addEventListener("change", (e) => { addReferences(fromInput(e.target)); e.target.value = ""; });
+const COLORS = 6;
+let nextPersonId = 1;
+const personColor = (p) => `var(--p${p.color})`;
+const examplesOf = (p) => p.refs.map((r) => r.faces[r.chosen].embedding);
+const readyPeople = () => state.people.filter((p) => p.refs.length);
+const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
 
-async function addReferences(all) {
+function addPerson() {
+  const id = nextPersonId++;
+  state.people.push({ id, name: `Person ${id}`, color: (id - 1) % COLORS, refs: [] });
+  renderPeople();
+  updateScanButton();
+}
+$("addPerson").onclick = () => {
+  addPerson();
+  $("people").lastElementChild.querySelector(".person-name").select();
+};
+
+function removePerson(person) {
+  state.people = state.people.filter((p) => p !== person);
+  renderPeople();
+  peopleChanged();
+}
+
+function renderPeople() {
+  $("people").replaceChildren(...state.people.map(personCard));
+  for (const p of state.people) p.ui.remove.hidden = state.people.length === 1;
+}
+
+function personCard(person) {
+  if (person.el) return person.el;
+  const el = document.createElement("div");
+  el.className = "person";
+  el.style.setProperty("--pc", personColor(person));
+  el.innerHTML = `
+    <div class="person-head">
+      <span class="dot"></span>
+      <input class="person-name" aria-label="Name of this person" maxlength="40">
+      <button class="linkish">Remove</button>
+    </div>
+    <div class="drop">
+      <strong>Drop photos of <span class="who"></span> here</strong>
+      <div class="row"><label class="btn">Choose photos<input type="file" accept="image/*,.heic,.heif" multiple></label></div>
+    </div>
+    <div class="refs"></div>
+    <div class="status"></div>
+    <div class="errors"></div>`;
+  const q = (selector) => el.querySelector(selector);
+  person.ui = { refs: q(".refs"), status: q(".status"), errors: q(".errors"), who: q(".who"), remove: q(".linkish") };
+  const name = q(".person-name");
+  name.value = person.name;
+  person.ui.who.textContent = person.name;
+  name.addEventListener("input", () => { person.name = name.value.trim() || `Person ${person.id}`; namesChanged(); });
+  person.ui.remove.onclick = () => removePerson(person);
+  wireDrop(q(".drop"), (items) => addReferences(person, items));
+  q("input[type=file]").addEventListener("change", (e) => { addReferences(person, fromInput(e.target)); e.target.value = ""; });
+  person.el = el;
+  return el;
+}
+
+function namesChanged() {
+  for (const p of state.people) {
+    p.ui.who.textContent = p.name;
+    renderRefs(p); // "Tap the one that's …"
+  }
+  updateScanButton();
+  if (state.results.length) render();
+}
+
+async function addReferences(person, all) {
+  const { errors, status } = person.ui;
   const visible = all.filter((i) => !isHidden(i.name));
   const items = visible.filter((i) => IMAGE_RE.test(i.name));
   const zips = visible.filter((i) => ZIP_RE.test(i.name)).length;
   const notes = [skippedNote(visible.filter((i) => !IMAGE_RE.test(i.name) && !ZIP_RE.test(i.name)).map((i) => i.name))];
   if (zips) notes.push(".zip files go in step 2, the photos to search.");
-  $("refErrors").textContent = notes.filter(Boolean).join("\n");
-  if (!items.length) return;
-  $("refStatus").textContent = "Learning their face…";
+  const key = (i) => `${i.name}|${i.size}|${i.modified}`;
+  const have = new Set(person.refs.map((r) => r.key));
+  const fresh = items.filter((i) => !have.has(key(i)));
+  if (fresh.length < items.length) notes.push(`${plural(items.length - fresh.length, "photo")} already added.`);
+  errors.textContent = notes.filter(Boolean).join("\n");
+  if (!fresh.length) return;
+  status.textContent = "Learning their face…";
   const form = new FormData();
-  items.forEach((i) => form.append("files", i.file, i.name));
+  fresh.forEach((i) => form.append("files", i.file, i.name));
   try {
-    const data = await (await fetch("/api/reference", { method: "POST", body: form })).json();
-    state.refs.push(...data.refs);
-    state.embeddings.push(...data.embeddings);
-    $("refErrors").textContent = [...data.errors, ...notes].filter(Boolean).join("\n");
-    referencesChanged();
-  } catch {
-    $("refErrors").textContent = "Couldn't reach Face Finder. Is it still running in the terminal?";
+    const data = await (await post("/api/reference", form)).json();
+    const keyByName = new Map(fresh.map((i) => [i.name, key(i)]));
+    for (const ref of data.refs) {
+      ref.key = keyByName.get(ref.name);
+      ref.chosen = 0;
+      person.refs.push(ref);
+    }
+    // Solo photos first, so they can help: then pick faces in new group photos, and revisit
+    // earlier guesses now that there's more to compare against.
+    for (const ref of person.refs) if (!ref.how && ref.faces.length === 1) autoChoose(person, ref);
+    for (const ref of person.refs) if (!ref.how || ref.how === "guess" || ref.how === "unsure") autoChoose(person, ref);
+    errors.textContent = [...data.errors, ...notes].filter(Boolean).join("\n");
+    renderRefs(person);
+    peopleChanged();
+  } catch (err) {
+    errors.textContent = err.offline ? OFFLINE : "Something went wrong reading those photos. Please try again.";
   }
-  $("refStatus").textContent = "";
+  status.textContent = "";
 }
 
-function renderRefs() {
-  const box = $("refs");
-  box.replaceChildren(...state.refs.map((ref, i) => {
+// In a group photo, pick the face most like this person's other examples. With nothing to compare
+// against it guesses the largest face, and says so. Faces you tap yourself are never changed.
+function autoChoose(person, ref) {
+  if (ref.faces.length === 1) {
+    ref.chosen = 0;
+    ref.how = "only";
+    return;
+  }
+  const known = person.refs.filter((r) => r !== ref && ["only", "auto", "picked"].includes(r.how))
+    .map((r) => r.faces[r.chosen].embedding);
+  let best = 0, top = -1;
+  ref.faces.forEach((f, k) => {
+    const s = Math.max(-1, ...known.map((e) => dot(e, f.embedding)));
+    if (s > top) { top = s; best = k; }
+  });
+  if (top >= state.threshold) [ref.chosen, ref.how] = [best, "auto"];
+  else [ref.chosen, ref.how] = [0, known.length ? "unsure" : "guess"];
+}
+
+const pickNote = {
+  guess: (n, name) => `${n} faces. Which one is ${name}? We guessed the biggest:`,
+  unsure: (n, name) => `${n} faces, and none look like ${name}'s other photos. Tap the right one, or remove this photo:`,
+  auto: (n, name) => `${n} faces. Picked the one most like ${name}'s other photos. Tap another if that's wrong:`,
+  picked: (n, name) => `${n} faces. Using the one you picked for ${name}:`,
+};
+
+function renderRefs(person) {
+  person.ui.refs.replaceChildren(...person.refs.map((ref, i) => {
+    const multi = ref.faces.length > 1;
     const el = document.createElement("div");
-    el.className = "ref";
+    el.className = "ref" + (multi ? " multi" : "");
     const remove = document.createElement("button");
     remove.className = "remove";
     remove.title = "Remove";
     remove.textContent = "×";
-    remove.onclick = () => { state.refs.splice(i, 1); state.embeddings.splice(i, 1); referencesChanged(); };
-    el.append(remove, frame(ref.thumb, ref.aspect, ref.faces.map((box) => ({ box, hit: true }))));
-    if (ref.note) {
+    remove.onclick = () => { person.refs.splice(i, 1); renderRefs(person); peopleChanged(); };
+    const pic = frame(ref.thumb, ref.aspect, ref.faces.map((f, k) => ({ box: f.box, hit: k === ref.chosen })));
+    el.append(remove, pic);
+    if (multi) {
+      const choose = (k) => {
+        const changed = ref.chosen !== k;
+        [ref.chosen, ref.how] = [k, "picked"];
+        renderRefs(person);
+        if (changed) peopleChanged();
+      };
+      pic.querySelectorAll(".box").forEach((b, k) => { b.onclick = () => choose(k); });
       const note = document.createElement("div");
-      note.className = "note";
-      note.textContent = ref.note;
-      el.append(note);
+      note.className = "note" + (ref.how === "guess" || ref.how === "unsure" ? " ask" : "");
+      note.textContent = pickNote[ref.how](ref.faces.length, person.name);
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      ref.faces.forEach((f, k) => {
+        const chip = document.createElement("button");
+        chip.className = "chip";
+        chip.setAttribute("aria-pressed", k === ref.chosen);
+        chip.setAttribute("aria-label", `Face ${k + 1}`);
+        chip.append(Object.assign(document.createElement("img"), { src: f.crop, alt: "" }));
+        chip.onclick = () => choose(k);
+        chips.append(chip);
+      });
+      el.append(note, chips);
     }
     return el;
   }));
 }
 
-function referencesChanged() {
-  renderRefs();
+function peopleChanged() {
   if (state.scanning || state.results.length) state.stale = true;
   updateScanButton();
 }
@@ -364,17 +509,19 @@ async function addPhotos(items) {
   const { photos, skipped, problems } = await collectPhotos(items);
   const key = (p) => `${p.name}|${p.size}|${p.modified}`;
   const seen = new Set(state.photos.map(key));
+  let added = 0;
   for (const item of photos) {
-    if (!seen.has(key(item))) { seen.add(key(item)); state.photos.push(item); }
+    if (!seen.has(key(item))) { seen.add(key(item)); state.photos.push(item); added++; }
   }
   const listed = problems.length > 10 ? [...problems.slice(0, 10), `…and ${(problems.length - 10).toLocaleString()} more`] : problems;
   $("photoErrors").textContent = [...listed, skippedNote(skipped)].filter(Boolean).join("\n");
-  photosChanged();
+  const repeats = photos.length - added;
+  photosChanged(repeats ? ` (${repeats.toLocaleString()} you just added ${repeats === 1 ? "was" : "were"} already in the list)` : "");
 }
 
-function photosChanged() {
+function photosChanged(note = "") {
   const n = state.photos.length;
-  $("photoStatus").textContent = n ? `${n.toLocaleString()} photo${n === 1 ? "" : "s"} ready to search` : "";
+  $("photoStatus").textContent = n ? `${n.toLocaleString()} photo${n === 1 ? "" : "s"} ready to search${note}` : "";
   $("clearPhotos").hidden = !n;
   updateScanButton();
 }
@@ -382,12 +529,16 @@ function photosChanged() {
 // ---------- scanning ----------
 
 const fmt = (n) => n.toLocaleString();
+const OFFLINE = "Can't reach Face Finder. Is it still running in the terminal? Start it again with “uv run facefinder web”, then try again.";
 
 function updateScanButton() {
   const btn = $("scanBtn");
-  btn.disabled = !state.scanning && (!state.embeddings.length || !state.photos.length);
-  btn.textContent = state.scanning ? "Stop" : state.stale ? "References changed: search again" : "Find this person";
-  if (!state.scanning && !state.embeddings.length) $("scanStatus").textContent = "Add a photo of the person first.";
+  const ready = readyPeople().length;
+  btn.disabled = !state.scanning && (!ready || !state.photos.length);
+  btn.textContent = state.scanning ? "Stop"
+    : state.stale ? "Examples changed: search again"
+    : ready > 1 ? `Find these ${ready} people` : "Find this person";
+  if (!state.scanning && !ready) $("scanStatus").textContent = "Add a photo of the person you're looking for first.";
   else if (!state.scanning && !state.photos.length) $("scanStatus").textContent = "Add photos to search.";
   else if (!state.scanning && !state.results.length) $("scanStatus").textContent = "";
 }
@@ -407,8 +558,8 @@ async function post(url, form) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fetch(url, { method: "POST", body: form });
-    } catch (err) {
-      if (attempt === 3) throw err;
+    } catch {
+      if (attempt === 3) throw Object.assign(new Error("Face Finder isn't reachable"), { offline: true });
       await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
     }
   }
@@ -421,18 +572,25 @@ function timeLeft(seconds) {
 }
 
 async function scan() {
+  const people = readyPeople();
+  const examples = JSON.stringify(people.map(examplesOf));
+  state.searched = people.map((p) => ({ id: p.id, name: p.name, color: p.color }));
+  state.filter = "p0";
+  const photos = state.photos.slice();
+  const total = photos.length;
   state.scanning = true;
   state.stale = false;
   clearResults();
   $("results").hidden = false;
   $("progress").style.visibility = "visible";
+  $("progress").firstElementChild.style.width = "0%";
   updateScanButton();
+  // Replace the last run's "Done" right away, so a second search visibly starts.
+  $("scanStatus").textContent = `Starting to search ${fmt(total)} photo${total === 1 ? "" : "s"}…`;
+  $("scanStatus").classList.remove("alert");
 
-  const embeddings = JSON.stringify(state.embeddings);
-  const photos = state.photos.slice();
-  const total = photos.length;
   const started = performance.now();
-  let next = 0, done = 0;
+  let next = 0, done = 0, offline = false;
   const worker = async () => {
     while (state.scanning && next < total) {
       const item = photos[next++];
@@ -440,9 +598,10 @@ async function scan() {
       try {
         const form = new FormData();
         form.append("file", await item.open(), item.name);
-        form.append("embeddings", embeddings);
-        result = await (await post("/api/scan", form)).json();
-      } catch {
+        form.append("people", examples);
+        result = prepare(await (await post("/api/scan", form)).json());
+      } catch (err) {
+        if (err.offline) { offline = true; state.scanning = false; break; } // stop instead of failing every photo
         result = { name: item.name, error: "scan failed" };
       }
       result.item = item;
@@ -461,7 +620,10 @@ async function scan() {
   state.scanning = false;
   $("progress").style.visibility = "hidden";
   updateScanButton();
-  $("scanStatus").textContent = `${stopped ? "Stopped" : "Done"}: searched ${fmt(done)} of ${fmt(total)} photos.`;
+  $("scanStatus").textContent = offline
+    ? `Stopped after ${fmt(done)} of ${fmt(total)} photos. ${OFFLINE}`
+    : `${stopped ? "Stopped" : "Done"}: searched ${fmt(done)} of ${fmt(total)} photos.`;
+  $("scanStatus").classList.toggle("alert", offline);
   render();
 }
 
@@ -529,11 +691,44 @@ function clearResults() {
   $("grid").replaceChildren();
 }
 
-function category(r) {
+// Each person's best score in a photo, for sorting that person's tab.
+function prepare(r) {
+  if (r.error) return r;
+  r.top = state.searched.map((_, i) => Math.max(-1, ...r.faces.map((f) => f.scores[i])));
+  r.maxScore = Math.max(-1, ...r.top);
+  return r;
+}
+
+// A face belongs to the person it looks most like, if that's above the cut-off, so one face can
+// never count as two people. Worked out again only when the cut-off moves.
+function owners(r) {
+  if (r.ownersAt !== state.threshold) {
+    r.owners = r.faces.map((f) => {
+      let who = -1, top = -Infinity;
+      f.scores.forEach((s, i) => { if (s > top) { top = s; who = i; } });
+      return top >= state.threshold ? who : -1;
+    });
+    r.ownersAt = state.threshold;
+  }
+  return r.owners;
+}
+const matchedPeople = (r) => (r.error ? [] : [...new Set(owners(r).filter((i) => i >= 0))]);
+
+function kind(r) {
   if (r.error) return "error";
   if (!r.faces.length) return "noface";
-  return r.best >= state.threshold ? "match" : "nomatch";
+  return matchedPeople(r).length ? "match" : "nomatch";
 }
+
+function inTab(r, tab) {
+  if (tab === "all") return true;
+  if (tab[0] === "p") return matchedPeople(r).includes(+tab.slice(1));
+  return kind(r) === tab;
+}
+
+// Names follow renames made after the search; a removed person keeps the name they were searched under.
+const searchedName = (i) => state.people.find((p) => p.id === state.searched[i].id)?.name ?? state.searched[i].name;
+const searchedColor = (i) => `var(--p${state.searched[i].color})`;
 
 function frame(thumb, aspect, faces) {
   // Place the picture inside a fixed 4:3 frame, then draw face boxes in its coordinates.
@@ -577,9 +772,10 @@ function card(r) {
     score.textContent = r.error;
   } else {
     el.append(frame(null, r.aspect, r.faces));
-    score.textContent = r.faces.length ? r.best.toFixed(2) : "no faces";
-    score.title = "Best similarity to the person (higher = more alike)";
+    score.textContent = "no faces";
+    score.title = "Similarity to the person (higher = more alike)";
   }
+  r.scoreEl = score;
   caption.append(name, score);
   el.append(caption);
   r.el = el;
@@ -598,19 +794,34 @@ function scheduleRender() {
 }
 
 function render() {
-  const counts = { match: 0, nomatch: 0, noface: 0, error: 0, all: state.results.length };
+  const n = state.searched.length;
+  const counts = { nomatch: 0, noface: 0, error: 0, all: state.results.length };
+  for (let i = 0; i < n; i++) counts["p" + i] = 0;
   const shown = [];
   for (const r of state.results) {
-    const cat = category(r);
-    counts[cat]++;
-    if (state.filter === "all" || state.filter === cat) shown.push(r);
+    const k = kind(r);
+    if (k === "match") for (const i of matchedPeople(r)) counts["p" + i]++;
+    else counts[k]++;
+    if (inTab(r, state.filter)) shown.push(r);
   }
-  shown.sort((a, b) => (b.best ?? -1) - (a.best ?? -1));
+  const person = state.filter[0] === "p" ? +state.filter.slice(1) : -1;
+  const sortKey = (r) => (r.error ? -2 : person >= 0 ? r.top[person] : r.maxScore);
+  shown.sort((a, b) => sortKey(b) - sortKey(a));
   const page = shown.slice(0, state.limit);
 
-  $("tabs").replaceChildren(...TABS.filter(([key]) => key !== "error" || counts.error).map(([key, label]) => {
+  const tabs = [
+    ...state.searched.map((_, i) => ["p" + i, searchedName(i), searchedColor(i)]),
+    ["nomatch", "Not matched"], ["noface", "No faces"], ["error", "Couldn't read"], ["all", "All"],
+  ];
+  $("tabs").replaceChildren(...tabs.filter(([key]) => key !== "error" || counts.error).map(([key, label, color]) => {
     const b = document.createElement("button");
-    b.textContent = `${label} (${fmt(counts[key])})`;
+    if (color) {
+      const d = document.createElement("span");
+      d.className = "dot";
+      d.style.setProperty("--pc", color);
+      b.append(d);
+    }
+    b.append(`${label} (${fmt(counts[key])})`);
     b.setAttribute("aria-pressed", state.filter === key);
     b.onclick = () => { state.filter = key; state.limit = PAGE; render(); };
     return b;
@@ -622,15 +833,39 @@ function render() {
   const cards = document.createDocumentFragment();
   for (const r of page) {
     cards.append(card(r));
-    r.el.classList.toggle("match", category(r) === "match");
-    r.boxes.forEach((b, i) => b.classList.toggle("hit", r.faces[i].score >= state.threshold));
+    decorate(r, person);
   }
   $("grid").replaceChildren(cards);
   $("empty").hidden = shown.length > 0;
   const rest = shown.length - page.length;
   $("moreBtn").hidden = rest <= 0;
   $("moreBtn").textContent = `Show ${fmt(Math.min(PAGE, rest))} more (${fmt(rest)} not shown yet)`;
-  $("downloadBtn").disabled = $("saveBtn").disabled = !counts.match || state.scanning || state.saving;
+  let matches = 0;
+  for (let i = 0; i < n; i++) matches += counts["p" + i];
+  $("downloadBtn").disabled = $("saveBtn").disabled = !matches || state.scanning || state.saving;
+}
+
+// Colour a card and its face boxes by who matched; label faces with names when looking for several people.
+function decorate(r, person) {
+  const matched = matchedPeople(r);
+  const accent = person >= 0 ? person : matched[0];
+  r.el.classList.toggle("match", matched.length > 0);
+  if (accent === undefined) r.el.style.removeProperty("--pc");
+  else r.el.style.setProperty("--pc", searchedColor(accent));
+  if (r.error) return;
+  const own = owners(r);
+  r.boxes.forEach((b, k) => {
+    const who = own[k];
+    b.classList.toggle("hit", who >= 0);
+    if (who >= 0) b.style.setProperty("--pc", searchedColor(who));
+    else b.style.removeProperty("--pc");
+    if (who >= 0 && state.searched.length > 1) b.dataset.name = searchedName(who);
+    else delete b.dataset.name;
+    b.title = r.faces[k].scores.map((s, i) => `${searchedName(i)}: ${s.toFixed(2)}`).join(" · ");
+  });
+  if (!r.faces.length) return;
+  r.scoreEl.textContent = person >= 0 ? r.top[person].toFixed(2)
+    : matched.length ? matched.map(searchedName).join(", ") : r.maxScore.toFixed(2);
 }
 $("moreBtn").onclick = () => { state.limit += PAGE; render(); };
 
@@ -643,16 +878,27 @@ $("threshold").addEventListener("input", (e) => { state.threshold = parseFloat(e
 
 // ---------- getting the matches out ----------
 
-const currentMatches = () => state.results.filter((r) => category(r) === "match");
+// Each searched person's matching photos; a photo with two of them is in both lists.
+function matchesByPerson() {
+  const groups = state.searched.map((_, i) => ({ name: searchedName(i), results: [] }));
+  for (const r of state.results) for (const i of matchedPeople(r)) groups[i].results.push(r);
+  return groups.filter((g) => g.results.length);
+}
+const safeFolder = (name) => name.replace(/[\\/:*?"<>|]+/g, "").replace(/^[\s.]+|[\s.]+$/g, "") || "Person";
 
 $("downloadBtn").onclick = async () => {
-  const matches = currentMatches();
+  const groups = matchesByPerson();
   const btn = $("downloadBtn");
   btn.disabled = true;
   btn.textContent = "Preparing zip…";
   try {
     const form = new FormData();
-    for (const r of matches) form.append("files", await r.item.open(), r.item.name);
+    for (const g of groups) {
+      for (const r of g.results) {
+        form.append("files", await r.item.open(), r.item.name);
+        if (state.searched.length > 1) form.append("folders", g.name);
+      }
+    }
     const res = await fetch("/api/zip", { method: "POST", body: form });
     if (!res.ok) throw new Error(res.statusText);
     const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await res.blob()), download: "matches.zip" });
@@ -690,21 +936,31 @@ $("saveBtn").onclick = async () => {
   } catch {
     return; // cancelled
   }
-  const matches = currentMatches();
+  const groups = matchesByPerson();
+  const total = groups.reduce((n, g) => n + g.results.length, 0);
   const btn = $("saveBtn");
   state.saving = true;
   render();
   let saved = 0, failed = 0;
-  for (const r of matches) {
-    btn.textContent = `Saving ${fmt(saved + failed + 1)} of ${fmt(matches.length)}…`;
+  for (const g of groups) {
+    let folder = dir;
     try {
-      const handle = await dir.getFileHandle(await freeName(dir, r.item.name.split("/").pop()), { create: true });
-      const out = await handle.createWritable();
-      await out.write(await r.item.open());
-      await out.close();
-      saved++;
+      if (state.searched.length > 1) folder = await dir.getDirectoryHandle(safeFolder(g.name), { create: true });
     } catch {
-      failed++;
+      failed += g.results.length;
+      continue;
+    }
+    for (const r of g.results) {
+      btn.textContent = `Saving ${fmt(saved + failed + 1)} of ${fmt(total)}…`;
+      try {
+        const handle = await folder.getFileHandle(await freeName(folder, r.item.name.split("/").pop()), { create: true });
+        const out = await handle.createWritable();
+        await out.write(await r.item.open());
+        await out.close();
+        saved++;
+      } catch {
+        failed++;
+      }
     }
   }
   state.saving = false;
@@ -714,6 +970,7 @@ $("saveBtn").onclick = async () => {
     `Saved ${fmt(saved)} photo${saved === 1 ? "" : "s"} to “${dir.name}”.` + (failed ? ` ${fmt(failed)} couldn't be saved.` : "");
 };
 
+addPerson();
 syncThreshold();
 updateScanButton();
 </script>

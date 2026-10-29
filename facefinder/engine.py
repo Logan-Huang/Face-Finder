@@ -34,8 +34,9 @@ except ImportError:  # HEIC support is optional
 # OpenCV 5 warns that its new graph engine ignores compute targets; that's harmless noise.
 cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
 
-# Cosine-similarity cut-off recommended for SFace by OpenCV (tuned on the LFW benchmark).
-MATCH_THRESHOLD = 0.363
+# Cosine-similarity cut-off. OpenCV suggests 0.363 for SFace; on our labelled test set
+# (scripts/make_test_photos.py) 0.40 cut wrong matches from 18 to 4 while finding 3% fewer photos.
+MATCH_THRESHOLD = 0.40
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
 
