@@ -1,6 +1,7 @@
-"""Build a labelled test set for measuring Face Finder's accuracy, then score runs against it.
+"""Get or build a labelled test set for measuring Face Finder's accuracy, then score runs against it.
 
-    uv run --with pyarrow python scripts/make_test_photos.py build      # ~1 GB of downloads
+    uv run --with pyarrow python scripts/make_test_photos.py fetch      # the published set, ~700 MB
+    # or: ... build   to make a fresh one from Wikimedia Commons (~1 GB of downloads, slow)
     for who in obama kanye; do
       uv run facefinder find test-photos/search --csv results_$who.csv \\
           --ref test-photos/reference/$who/1.jpg --ref test-photos/reference/$who/2.jpg \\
@@ -27,6 +28,11 @@ or facing away). Reference photos must be captioned as that person alone, since 
 reference photos are left out so the test can't be won by duplicates.
 To add a person, add one line to TARGETS (or HARD_NEGATIVES); the answers.csv columns follow.
 
+`fetch` downloads the published set: its Wikimedia photos (with CREDITS.csv: author, license and
+source of each) come from a GitHub release, and the face-dataset photos from Hugging Face, since
+their news-agency owners never licensed re-hosting them. `bundle` makes that release zip from a
+freshly built test-photos/.
+
 `score` prints one table per person. A "wrong match" there is any photo whose answer for that person
 is "no" (so a Kanye photo matched as Obama counts against Obama), followed by where those came from.
 """
@@ -34,6 +40,7 @@ is "no" (so a Kanye photo matched as Obama counts against Obama), followed by wh
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json
 import random
@@ -43,6 +50,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from pathlib import Path
@@ -53,6 +61,11 @@ CACHE = Path.home() / ".cache" / "face-finder" / "test-photos"
 USER_AGENT = "FaceFinderTestSet/0.1 (https://github.com/Logan-Huang/Face-Finder)"
 COMMONS = "https://commons.wikimedia.org/w/api.php"
 LFW_PARQUET = "https://huggingface.co/datasets/bitmind/lfw/resolve/main/data/train-00000-of-00001.parquet"
+# The Wikimedia photos of a published test set, with credits, attached to a GitHub release. The
+# face-dataset photos aren't in it (their news-agency owners never licensed re-hosting); `fetch`
+# gets those from Hugging Face instead.
+BUNDLE_NAME = "face-finder-test-photos.zip"
+BUNDLE_URL = f"https://github.com/Logan-Huang/Face-Finder/releases/download/test-photos-v1/{BUNDLE_NAME}"
 
 # One line per person: key -> (Wikidata id, max photos, regex for their name in a title/description,
 # regex for their name in an LFW file name, extra Commons search that also finds photos of them).
@@ -327,7 +340,7 @@ def build() -> None:
             path = lfw_dir / row["filename"]
             if not path.exists():
                 path.write_bytes(row["image"]["bytes"])
-            entries.append((path, set(), "lfw:" + person, "", "LFW (research dataset)"))
+            entries.append((path, set(), "lfw:" + person, "lfw:" + row["filename"], "LFW (research dataset)"))
             n_lfw += 1
 
     # Write the folder.
@@ -390,10 +403,99 @@ def score(args: list[str]) -> None:
             print(f"  {src:<28} {wrong[src]:>4} of {totals[src]}")
 
 
+def clean(html_text: str) -> str:
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", html_text)).split())
+
+
+def bundle() -> None:
+    """Zip the Wikimedia photos of test-photos/ with a credits file, ready for a GitHub release."""
+    answers = list(csv.DictReader((OUT / "answers.csv").open()))
+    files = {}  # path inside the set -> Commons page
+    for row in csv.DictReader((OUT / "reference" / "credits.csv").open()):
+        files["reference/" + row["file"]] = row["page"]
+    for row in answers:
+        if row["page"].startswith("https://commons.wikimedia.org/"):
+            files["search/" + row["photo"]] = row["page"]
+    title_of = {page: urllib.parse.unquote(page.rsplit("/", 1)[1]).replace("_", " ") for page in files.values()}
+
+    print(f"Looking up the author and license of {len(files):,} Wikimedia photos...")
+    meta = {}
+    titles = sorted(set(title_of.values()))
+    for i in range(0, len(titles), 20):  # long file names: 50 at a time makes the URL too long
+        data = commons(action="query", titles="|".join(titles[i:i + 20]), prop="imageinfo", iiprop="extmetadata",
+                       iiextmetadatafilter="Artist|LicenseShortName|LicenseUrl")
+        renamed = {n["to"]: n["from"] for n in data["query"].get("normalized", [])}
+        for page in data["query"]["pages"].values():
+            m = (page.get("imageinfo") or [{}])[0].get("extmetadata", {})
+            meta[renamed.get(page["title"], page["title"])] = {k: clean(m.get(k, {}).get("value", "")) for k in
+                                                                ("Artist", "LicenseShortName", "LicenseUrl")}
+    with (OUT / "CREDITS.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["file", "title", "author", "license", "license_url", "source"])
+        for path, page in sorted(files.items()):
+            m = meta.get(title_of[page], {})
+            w.writerow([path, title_of[page], m.get("Artist") or "unknown", m.get("LicenseShortName", ""),
+                        m.get("LicenseUrl", ""), page])
+
+    out = CACHE / BUNDLE_NAME
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:  # JPEGs don't compress further
+        z.writestr("test-photos/README.txt", BUNDLE_README)
+        for name in ("answers.csv", "CREDITS.csv", "reference/credits.csv"):
+            z.write(OUT / name, f"test-photos/{name}")
+        for path in sorted(files):
+            z.write(OUT / path, f"test-photos/{path}")
+    print(f"Wrote {out} ({out.stat().st_size / 1e6:.0f} MB, {len(files):,} photos). Credits: {OUT / 'CREDITS.csv'}")
+
+
+BUNDLE_README = """Face Finder test photos (https://github.com/Logan-Huang/Face-Finder)
+
+Photos from Wikimedia Commons, each under its own license: see CREDITS.csv for the author, license
+and source page of every photo. CC BY and CC BY-SA photos may be reused only with that credit, and
+CC BY-SA ones only under the same license. Photos are resized to 1280 pixels wide.
+
+answers.csv says which photos contain which person. The 1,300 photos of other people listed there as
+lfw:... come from the Labeled Faces in the Wild research dataset and aren't included here; run
+`scripts/make_test_photos.py fetch` to download everything and assemble the full set.
+"""
+
+
+def fetch() -> None:
+    """Download the published test set: the Wikimedia bundle, plus the face-dataset photos it lists."""
+    import pyarrow.parquet as pq
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    zipped = CACHE / BUNDLE_NAME
+    if not zipped.exists():
+        print("Downloading the test photos from GitHub (about 500 MB)...")
+        part = zipped.with_name(zipped.name + ".part")
+        req = urllib.request.Request(BUNDLE_URL, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=60) as resp, part.open("wb") as f:
+            shutil.copyfileobj(resp, f, 1 << 20)
+        part.replace(zipped)
+    if OUT.exists():
+        shutil.rmtree(OUT)
+    with zipfile.ZipFile(zipped) as z:
+        z.extractall(ROOT)
+
+    parquet = CACHE / "lfw.parquet"
+    if not parquet.exists():
+        print("Downloading Labeled Faces in the Wild from Hugging Face (190 MB)...")
+        parquet.write_bytes(get(LFW_PARQUET))
+    wanted = {r["page"][4:]: r["photo"] for r in csv.DictReader((OUT / "answers.csv").open()) if r["page"].startswith("lfw:")}
+    for row in pq.read_table(parquet, columns=["filename", "image"]).to_pylist():
+        if row["filename"] in wanted:
+            (OUT / "search" / wanted.pop(row["filename"])).write_bytes(row["image"]["bytes"])
+    if wanted:
+        sys.exit(f"{len(wanted)} face-dataset photos are missing from the download; the set is incomplete.")
+    n = len(list((OUT / "search").glob("*.jpg")))
+    print(f"Ready: {OUT} ({n:,} photos to search, plus the reference photos).")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 2 and sys.argv[1] == "build":
-        build()
+    commands = {"build": build, "bundle": bundle, "fetch": fetch}
+    if len(sys.argv) == 2 and sys.argv[1] in commands:
+        commands[sys.argv[1]]()
     elif len(sys.argv) >= 3 and sys.argv[1] == "score":
         score(sys.argv[2:])
     else:
-        sys.exit("Usage: make_test_photos.py build | score person=results.csv [person=results.csv ...]")
+        sys.exit("Usage: make_test_photos.py fetch | build | bundle | score person=results.csv [...]")

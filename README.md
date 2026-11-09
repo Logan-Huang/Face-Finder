@@ -129,9 +129,18 @@ filter rather than proof.
 
 ## Measuring accuracy
 
-`scripts/make_test_photos.py` builds a labelled test set in `test-photos/` (git ignores it; about
-1 GB of downloads) from Wikimedia Commons and the Labeled Faces in the Wild research dataset, and
-scores a run against it. Its first lines show the exact commands.
+A labelled test set of 3,171 photos is published with the code. Download it into `test-photos/`
+(git ignores the folder; about 700 MB) with:
+
+```sh
+uv run --with pyarrow python scripts/make_test_photos.py fetch
+```
+
+It holds Barack Obama, Kanye West, people often photographed with them, and 1,300 other people.
+The photos come from Wikimedia Commons (`test-photos/CREDITS.csv` lists each photographer and
+license) and the Labeled Faces in the Wild research dataset. `test-photos/answers.csv` says who is
+in each photo. The first lines of `scripts/make_test_photos.py` show how to score a run, or build a
+fresh set.
 
 Latest results at the default cut-off (0.40), searching 3,171 photos with 3 example photos each:
 
