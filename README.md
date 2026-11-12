@@ -127,3 +127,13 @@ checked against SHA-256 hashes before use.
 ## License
 
 [MIT](LICENSE)
+
+## Camera RAW files
+
+Canon `.crw`, `.cr2`, `.cr3` and Fujifilm `.raf` files can be used as references
+or search photos, including inside ZIP archives. Camera-model support depends on
+LibRaw (bundled with rawpy); unsupported files are reported as unreadable.
+RAW images are developed locally at half resolution with camera white balance
+and camera orientation before face recognition. This takes more time and memory
+than JPEG decoding. Exports preserve the original RAW bytes. No RAW samples are
+bundled, so verify results with your camera's files.

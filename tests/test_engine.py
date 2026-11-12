@@ -89,3 +89,31 @@ def test_unique_path(tmp_path):
     (tmp_path / "x.jpg").touch()
     assert _unique_path(tmp_path / "x.jpg").name == "x_1.jpg"
     assert _unique_path(tmp_path / "y.jpg").name == "y.jpg"
+
+
+def test_raw_decode_uses_camera_settings(monkeypatch):
+    import io
+    import facefinder.engine as engine
+
+    class Raw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def postprocess(self, **kwargs):
+            assert kwargs == dict(half_size=True, use_camera_wb=True, output_bps=8)
+            return np.array([[[10, 20, 30]]], dtype=np.uint8)
+
+    monkeypatch.setattr(engine.rawpy, "imread", lambda source: Raw())
+    for name in ("photo.CR2", "photo.cr3", "photo.crw", "photo.RAF"):
+        image = engine.load_image(io.BytesIO(b"raw"), name)
+        assert image.tolist() == [[[30, 20, 10]]]
+
+
+def test_raw_files_discovered(tmp_path):
+    from facefinder.engine import list_photos
+    for name in ("a.CR2", "b.cr3", "c.crw", "d.RAF"):
+        (tmp_path / name).touch()
+    assert len(list_photos([tmp_path])) == 4

@@ -99,7 +99,7 @@
       <div class="drop" id="refDrop">
         <strong>Drop photos of the person here</strong>
         <div class="row"><label class="btn" for="refInput">Choose photos</label></div>
-        <input id="refInput" type="file" accept="image/*,.heic,.heif" multiple>
+        <input id="refInput" type="file" accept="image/*,.heic,.heif,.crw,.cr2,.cr3,.raf" multiple>
       </div>
       <div class="refs" id="refs"></div>
       <div class="status" id="refStatus"></div>
@@ -108,7 +108,7 @@
 
     <section class="panel">
       <h2>2. Which photos should I search?</h2>
-      <p class="hint">Drop photos, whole folders or .zip files. JPEG, PNG, HEIC and more.</p>
+      <p class="hint">Drop photos, whole folders or .zip files. JPEG, PNG, HEIC, Canon RAW and Fujifilm RAW.</p>
       <div class="drop" id="photoDrop">
         <strong>Drop photos, folders or .zip files here</strong>
         <div class="row">
@@ -116,7 +116,7 @@
           <label class="btn" for="folderInput">Choose a folder</label>
           <button id="clearPhotos" hidden>Clear</button>
         </div>
-        <input id="photoInput" type="file" accept="image/*,.heic,.heif,.zip,application/zip" multiple>
+        <input id="photoInput" type="file" accept="image/*,.heic,.heif,.crw,.cr2,.cr3,.raf,.zip,application/zip" multiple>
         <input id="folderInput" type="file" webkitdirectory multiple>
       </div>
       <div class="status" id="photoStatus"></div>
@@ -151,7 +151,7 @@
 </main>
 
 <script>
-const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|heic|heif)$/i;
+const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|heic|heif|crw|cr2|cr3|raf)$/i;
 const ZIP_RE = /\.zip$/i;
 const FRAME_ASPECT = 4 / 3;
 const CONCURRENCY = 2;

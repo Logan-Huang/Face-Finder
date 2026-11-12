@@ -118,7 +118,7 @@ def _find(args: argparse.Namespace) -> int:
                     img = load_image(ref.path)
                 else:
                     data = zips.read(ref)
-                    img = load_image(io.BytesIO(data))
+                    img = load_image(io.BytesIO(data), ref.member)
                 faces = engine.faces(img)
                 row = None
             except PhotoError as exc:

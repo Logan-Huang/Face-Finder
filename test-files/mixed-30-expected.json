@@ -1,0 +1,152 @@
+[
+  {
+    "file": "match-01.jpg",
+    "match": true,
+    "best_score": 0.9407649636268616
+  },
+  {
+    "file": "match-02.jpg",
+    "match": true,
+    "best_score": 0.9705542325973511
+  },
+  {
+    "file": "match-03.jpg",
+    "match": true,
+    "best_score": 0.93348228931427
+  },
+  {
+    "file": "match-04.jpg",
+    "match": true,
+    "best_score": 0.9259246587753296
+  },
+  {
+    "file": "match-05.jpg",
+    "match": true,
+    "best_score": 0.9488863945007324
+  },
+  {
+    "file": "match-06.jpg",
+    "match": true,
+    "best_score": 0.964109480381012
+  },
+  {
+    "file": "match-07.jpg",
+    "match": true,
+    "best_score": 0.9905075430870056
+  },
+  {
+    "file": "match-08.jpg",
+    "match": true,
+    "best_score": 0.9468967318534851
+  },
+  {
+    "file": "match-09.jpg",
+    "match": true,
+    "best_score": 0.9350385665893555
+  },
+  {
+    "file": "match-10.jpg",
+    "match": true,
+    "best_score": 0.9530972838401794
+  },
+  {
+    "file": "match-11.jpg",
+    "match": true,
+    "best_score": 0.9601461291313171
+  },
+  {
+    "file": "match-12.jpg",
+    "match": true,
+    "best_score": 0.9622076749801636
+  },
+  {
+    "file": "match-13.jpg",
+    "match": true,
+    "best_score": 0.9062900543212891
+  },
+  {
+    "file": "match-14.jpg",
+    "match": true,
+    "best_score": 0.8913867473602295
+  },
+  {
+    "file": "match-15.jpg",
+    "match": true,
+    "best_score": 0.8850111365318298
+  },
+  {
+    "file": "no-face-01.jpg",
+    "match": false,
+    "best_score": null
+  },
+  {
+    "file": "no-face-02.jpg",
+    "match": false,
+    "best_score": null
+  },
+  {
+    "file": "no-face-03.jpg",
+    "match": false,
+    "best_score": null
+  },
+  {
+    "file": "no-face-04.jpg",
+    "match": false,
+    "best_score": null
+  },
+  {
+    "file": "no-face-05.jpg",
+    "match": false,
+    "best_score": null
+  },
+  {
+    "file": "nonmatch-person-01.jpg",
+    "match": false,
+    "best_score": 0.13829858601093292
+  },
+  {
+    "file": "nonmatch-person-02.jpg",
+    "match": false,
+    "best_score": 0.1527123600244522
+  },
+  {
+    "file": "nonmatch-person-03.jpg",
+    "match": false,
+    "best_score": 0.15268133580684662
+  },
+  {
+    "file": "nonmatch-person-04.jpg",
+    "match": false,
+    "best_score": 0.1529099941253662
+  },
+  {
+    "file": "nonmatch-person-05.jpg",
+    "match": false,
+    "best_score": 0.1504235863685608
+  },
+  {
+    "file": "nonmatch-person-06.jpg",
+    "match": false,
+    "best_score": 0.16172188520431519
+  },
+  {
+    "file": "nonmatch-person-07.jpg",
+    "match": false,
+    "best_score": 0.16301566362380981
+  },
+  {
+    "file": "nonmatch-person-08.jpg",
+    "match": false,
+    "best_score": 0.14649178087711334
+  },
+  {
+    "file": "nonmatch-person-09.jpg",
+    "match": false,
+    "best_score": 0.16277623176574707
+  },
+  {
+    "file": "nonmatch-person-10.jpg",
+    "match": false,
+    "best_score": 0.13571074604988098
+  }
+]
