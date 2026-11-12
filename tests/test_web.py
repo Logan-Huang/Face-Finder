@@ -35,17 +35,19 @@ def _client():
     return create_app(FakeEngine()).test_client()
 
 
-def test_reference_learns_largest_face_and_reports_problems():
+def test_reference_offers_every_face_largest_first_and_reports_problems():
     resp = _client().post("/api/reference", data={"files": [
         (_jpeg("red"), "me.jpg"), (_jpeg("lime"), "group.jpg"), (_jpeg("blue"), "nobody.jpg"),
         (io.BytesIO(b"junk"), "broken.jpg"), (_jpeg("white"), "weird.jpg"),
     ]}).get_json()
-    assert [r["name"] for r in resp["refs"]] == ["me.jpg", "group.jpg"]
-    assert resp["embeddings"] == [[1.0, 0.0], [0.6000000238418579, 0.800000011920929]]
-    assert resp["refs"][1]["note"] == "2 faces found; using the largest"
-    assert resp["refs"][0]["faces"][0] == [10 / 64, 10 / 48, 20 / 64, 20 / 48]
-    assert resp["refs"][0]["aspect"] == 64 / 48
-    assert resp["refs"][0]["thumb"].startswith("data:image/jpeg;base64,")
+    me, group = resp["refs"]
+    assert [me["name"], group["name"]] == ["me.jpg", "group.jpg"]
+    assert me["faces"][0]["box"] == [10 / 64, 10 / 48, 20 / 64, 20 / 48]
+    assert me["faces"][0]["embedding"] == [1.0, 0.0]
+    assert me["aspect"] == 64 / 48 and me["thumb"].startswith("data:image/jpeg;base64,")
+    # Both faces of the group photo are offered, largest first, each with a close-up to click on.
+    assert [f["embedding"] for f in group["faces"]] == [[0.6000000238418579, 0.800000011920929], [0.0, 1.0]]
+    assert all(f["crop"].startswith("data:image/jpeg;base64,") for f in group["faces"])
     assert resp["errors"] == [
         "nobody.jpg: no face found",
         "broken.jpg: not a readable image (UnidentifiedImageError)",
@@ -53,18 +55,18 @@ def test_reference_learns_largest_face_and_reports_problems():
     ]
 
 
-def test_scan_scores_every_face():
+def test_scan_scores_every_face_against_every_person():
     client = _client()
-    embeddings = json.dumps([[1.0, 0.0]])
-    hit = client.post("/api/scan", data={"file": (_jpeg("red"), "a.jpg"), "embeddings": embeddings}).get_json()
-    assert hit["best"] == 1.0 and len(hit["faces"]) == 1
-    group = client.post("/api/scan", data={"file": (_jpeg("lime"), "b.jpg"), "embeddings": embeddings}).get_json()
-    assert [round(f["score"], 3) for f in group["faces"]] == [0.0, 0.6]
-    empty = client.post("/api/scan", data={"file": (_jpeg("blue"), "c.jpg"), "embeddings": embeddings}).get_json()
-    assert empty["faces"] == [] and empty["best"] is None
-    bad = client.post("/api/scan", data={"file": (io.BytesIO(b"x"), "d.jpg"), "embeddings": embeddings}).get_json()
+    people = json.dumps([[[1.0, 0.0]], [[0.0, 1.0]]])  # person 1 looks like "red", person 2 like the small "lime" face
+    hit = client.post("/api/scan", data={"file": (_jpeg("red"), "a.jpg"), "people": people}).get_json()
+    assert hit["faces"][0]["scores"] == [1.0, 0.0]
+    group = client.post("/api/scan", data={"file": (_jpeg("lime"), "b.jpg"), "people": people}).get_json()
+    assert [f["scores"] for f in group["faces"]] == [[0.0, 1.0], [0.6, 0.8]]
+    empty = client.post("/api/scan", data={"file": (_jpeg("blue"), "c.jpg"), "people": people}).get_json()
+    assert empty["faces"] == []
+    bad = client.post("/api/scan", data={"file": (io.BytesIO(b"x"), "d.jpg"), "people": people}).get_json()
     assert "error" in bad
-    failed = client.post("/api/scan", data={"file": (_jpeg("white"), "e.jpg"), "embeddings": embeddings}).get_json()
+    failed = client.post("/api/scan", data={"file": (_jpeg("white"), "e.jpg"), "people": people}).get_json()
     assert failed["error"] == "face detection failed on this image"
 
 
@@ -106,6 +108,16 @@ def test_thumb_is_small_upright_jpeg():
 
 
 def test_scan_results_carry_no_thumbnail():
-    embeddings = json.dumps([[1.0, 0.0]])
-    resp = _client().post("/api/scan", data={"file": (_jpeg("red"), "a.jpg"), "embeddings": embeddings}).get_json()
+    people = json.dumps([[[1.0, 0.0]]])
+    resp = _client().post("/api/scan", data={"file": (_jpeg("red"), "a.jpg"), "people": people}).get_json()
     assert "thumb" not in resp
+
+
+def test_zip_puts_each_person_in_their_own_folder():
+    resp = _client().post("/api/zip", data={
+        "files": [(io.BytesIO(b"a"), "IMG_1.jpg"), (io.BytesIO(b"b"), "IMG_1.jpg"), (io.BytesIO(b"c"), "IMG_2.jpg")],
+        "folders": ["Kanye", "Obama", "../../etc"],
+    })
+    with zipfile.ZipFile(io.BytesIO(resp.data)) as z:
+        assert z.namelist() == ["Kanye/IMG_1.jpg", "Obama/IMG_1.jpg", "etc/IMG_2.jpg"]
+        assert z.read("Obama/IMG_1.jpg") == b"b"

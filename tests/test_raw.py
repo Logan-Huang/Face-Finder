@@ -26,7 +26,7 @@ def test_corrupt_raw_is_reported(extension):
         load_image(io.BytesIO(b'not raw'), name)
     client = create_app(NoFaces()).test_client()
     scan = client.post('/api/scan', data={
-        'file': (io.BytesIO(b'not raw'), name), 'embeddings': '[[1,0]]'})
+        'file': (io.BytesIO(b'not raw'), name), 'people': '[[[1,0]]]'})
     assert 'error' in scan.get_json()
     assert client.post('/api/thumb', data={
         'file': (io.BytesIO(b'not raw'), name)}).status_code == 422
@@ -48,7 +48,7 @@ def test_real_raw_end_to_end(path):
     ref = client.post('/api/reference', data={'files': (io.BytesIO(data), path.name)}).get_json()
     assert ref['errors'] == [f'{path.name}: no face found']
     scan = client.post('/api/scan', data={
-        'file': (io.BytesIO(data), path.name), 'embeddings': json.dumps([[1, 0]])}).get_json()
+        'file': (io.BytesIO(data), path.name), 'people': json.dumps([[[1, 0]]])}).get_json()
     assert 'error' not in scan
     thumb = client.post('/api/thumb', data={'file': (io.BytesIO(data), path.name)})
     assert thumb.status_code == 200

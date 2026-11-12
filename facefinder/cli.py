@@ -37,7 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--copy-to", type=Path, help="copy each matching photo into this folder as soon as it is found")
     find.add_argument("--csv", type=Path, help="write every photo's score to this CSV file as the run goes")
     find.add_argument("--resume", action="store_true",
-                      help="continue an interrupted run: skip photos already listed in --csv and append to it")
+                      help="continue an interrupted run: skip photos already in --csv and append to it; "
+                           "photos that couldn't be read last time are tried again")
 
     web = sub.add_parser("web", help="open the drag-and-drop web page (served only to this computer)")
     web.add_argument("--port", type=int, default=8765)
@@ -89,8 +90,16 @@ def _find(args: argparse.Namespace) -> int:
     done: set[str] = set()
     if args.resume and args.csv.exists():
         with args.csv.open(newline="") as f:
-            done = {row["photo"] for row in csv.DictReader(f)}
-        print(f"Resuming: {len(done):,} photo(s) already done", file=sys.stderr)
+            rows = list(csv.DictReader(f))
+        # Photos that couldn't be read (say a network drive dropped mid-run), and a row cut off by
+        # the interruption, get another try. Their old rows go, so each photo keeps one row.
+        finished = [row for row in rows if row.get("result") in ("match", "no match")]
+        retrying = len(rows) - len(finished)
+        if retrying:
+            _rewrite_csv(args.csv, finished)
+        done = {row["photo"] for row in finished}
+        print(f"Resuming: {len(done):,} photo(s) already done"
+              + (f", trying {retrying:,} again that couldn't be read last time" if retrying else ""), file=sys.stderr)
         photos = [p for p in photos if p.label not in done]
     total = len(photos)
     print(f"Searching {total:,} photo(s) using {len(references)} reference face(s)...", file=sys.stderr)
@@ -234,6 +243,15 @@ def _copy_match(ref: PhotoRef, data: bytes | None, folder: Path, zips: _ZipReade
         os.utime(target, (mtime, mtime))
     except Exception:
         pass  # the copy is what matters; keep the default timestamp
+
+
+def _rewrite_csv(path: Path, rows: list[dict]) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    tmp.replace(path)  # swap in one step, so a crash here can't lose the earlier results
 
 
 def _unique_path(path: Path) -> Path:
