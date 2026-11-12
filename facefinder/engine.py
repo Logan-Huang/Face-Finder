@@ -20,6 +20,7 @@ from typing import BinaryIO
 
 import cv2
 import numpy as np
+import rawpy
 from PIL import Image, ImageOps
 
 from .models import ensure_models
@@ -38,7 +39,9 @@ cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
 # (scripts/make_test_photos.py) 0.40 cut wrong matches from 18 to 4 while finding 3% fewer photos.
 MATCH_THRESHOLD = 0.40
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
+RAW_EXTENSIONS = {".crw", ".cr2", ".cr3", ".raf"}
+
+IMAGE_EXTENSIONS = RAW_EXTENSIONS | {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
 
 # Faces are detected on a copy no larger than this; 1600px keeps small faces in group shots.
 DETECT_MAX_SIDE = 1600
@@ -62,9 +65,17 @@ class PhotoError(Exception):
     """A photo that couldn't be read or analysed."""
 
 
-def load_image(source: str | Path | BinaryIO) -> np.ndarray:
+def load_image(source: str | Path | BinaryIO, filename: str | None = None) -> np.ndarray:
     """Decode a photo into an upright BGR array. Raises PhotoError if it isn't an image."""
     try:
+        name = filename or (str(source) if isinstance(source, (str, Path)) else getattr(source, "name", ""))
+        if isinstance(name, (str, Path)) and Path(name).suffix.lower() in RAW_EXTENSIONS:
+            # LibRaw applies camera orientation; half-size development limits memory and work.
+            if hasattr(source, "seek"):
+                source.seek(0)
+            with rawpy.imread(str(source) if isinstance(source, Path) else source) as raw:
+                rgb = raw.postprocess(half_size=True, use_camera_wb=True, output_bps=8)
+            return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         with Image.open(source) as img:
             img = ImageOps.exif_transpose(img).convert("RGB")
             return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)

@@ -130,7 +130,7 @@
 
     <section class="panel">
       <h2>2. Which photos should I search?</h2>
-      <p class="hint">Drop photos, whole folders or .zip files. JPEG, PNG, HEIC and more.</p>
+      <p class="hint">Drop photos, whole folders or .zip files. JPEG, PNG, HEIC, Canon RAW and Fujifilm RAW.</p>
       <div class="drop" id="photoDrop">
         <strong>Drop photos, folders or .zip files here</strong>
         <div class="row">
@@ -138,7 +138,7 @@
           <label class="btn" for="folderInput">Choose a folder</label>
           <button id="clearPhotos" hidden>Clear</button>
         </div>
-        <input id="photoInput" type="file" accept="image/*,.heic,.heif,.zip,application/zip" multiple>
+        <input id="photoInput" type="file" accept="image/*,.heic,.heif,.crw,.cr2,.cr3,.raf,.zip,application/zip" multiple>
         <input id="folderInput" type="file" webkitdirectory multiple>
       </div>
       <div class="status" id="photoStatus"></div>
@@ -173,7 +173,7 @@
 </main>
 
 <script>
-const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|heic|heif)$/i;
+const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|heic|heif|crw|cr2|cr3|raf)$/i;
 const ZIP_RE = /\.zip$/i;
 const FRAME_ASPECT = 4 / 3;
 const CONCURRENCY = 2;
@@ -362,7 +362,7 @@ function personCard(person) {
     </div>
     <div class="drop">
       <strong>Drop photos of <span class="who"></span> here</strong>
-      <div class="row"><label class="btn">Choose photos<input type="file" accept="image/*,.heic,.heif" multiple></label></div>
+      <div class="row"><label class="btn">Choose photos<input type="file" accept="image/*,.heic,.heif,.crw,.cr2,.cr3,.raf" multiple></label></div>
     </div>
     <div class="refs"></div>
     <div class="status"></div>

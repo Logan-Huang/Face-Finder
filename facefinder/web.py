@@ -19,7 +19,7 @@ from PIL import Image, ImageOps
 from waitress import create_server
 
 from .engine import (
-    MATCH_THRESHOLD, Face, FaceEngine, PhotoError, load_image, similarity, thumbnail_data_url,
+    MATCH_THRESHOLD, RAW_EXTENSIONS, Face, FaceEngine, PhotoError, load_image, similarity, thumbnail_data_url,
 )
 
 STATIC = Path(__file__).parent / "static"
@@ -51,7 +51,7 @@ def create_app(engine: FaceEngine) -> Flask:
         refs, errors = [], []
         for upload in request.files.getlist("files"):
             try:
-                img = load_image(upload.stream)
+                img = load_image(upload.stream, upload.filename)
                 faces = engine.faces(img)
             except PhotoError as exc:
                 errors.append(f"{upload.filename}: {exc}")
@@ -76,7 +76,7 @@ def create_app(engine: FaceEngine) -> Flask:
         upload = request.files["file"]
         people = [np.asarray(refs, np.float32) for refs in json.loads(request.form["people"])]
         try:
-            img = load_image(upload.stream)
+            img = load_image(upload.stream, upload.filename)
             faces = engine.faces(img)
         except PhotoError as exc:
             return jsonify(name=upload.filename, error=str(exc))
@@ -96,7 +96,7 @@ def create_app(engine: FaceEngine) -> Flask:
     def thumb():
         """A small upright JPEG preview of one photo."""
         try:
-            data = _thumbnail_jpeg(request.files["file"].stream)
+            data = _thumbnail_jpeg(request.files["file"].stream, filename=request.files["file"].filename)
         except Exception:
             return jsonify(error="not a readable image"), 422
         return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
@@ -126,7 +126,13 @@ def _box(face: Face, img: np.ndarray) -> list[float]:
     return [x / w, y / h, bw / w, bh / h]
 
 
-def _thumbnail_jpeg(stream, max_side: int = 480) -> bytes:
+def _thumbnail_jpeg(stream, max_side: int = 480, filename: str | None = None) -> bytes:
+    if filename and Path(filename).suffix.lower() in RAW_EXTENSIONS:
+        img = Image.fromarray(load_image(stream, filename)[:, :, ::-1])
+        img.thumbnail((max_side, max_side))
+        out = io.BytesIO()
+        img.save(out, "JPEG", quality=82)
+        return out.getvalue()
     with Image.open(stream) as img:
         img.draft("RGB", (max_side, max_side))  # JPEGs decode straight at reduced size: much faster
         img = ImageOps.exif_transpose(img).convert("RGB")
